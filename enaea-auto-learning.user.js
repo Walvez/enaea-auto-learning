@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         中国教育干部网络学院 自动连续学习（新版 estudy）
 // @namespace    https://estudy.enaea.edu.cn/
-// @version      1.0.7
+// @version      1.0.8
 // @updateURL    https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @downloadURL  https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @description  新版 estudy.enaea.edu.cn 自动顺序学习：保持 1.0x 正常播放，播放完自动切换下一集/下一课程/下一小节/下一大章；跨页保存进度；右下角控制面板。仅在本学习项目内生效，不改写服务器记录、不倍速、不拖进度条。
@@ -248,10 +248,14 @@
     return null;
   }
   function courseProgress(box) {
+    const lab = box.querySelector(SEL.progressLabel);
+    const labTxt = lab ? (lab.textContent || '').replace(/\s+/g, '') : '';
+    // 课程学完后不再显示百分比，而是显示“完成/已学完”文字（并移除圆环进度条 role=progressbar）。
+    // 旧版只读 aria-valuenow → 已完成课程拿到 null/0 → 永远判不成 100% → 反复被选中、卡在本节不前进。
+    if (/完成|已学完|学完/.test(labTxt)) return 100;
     const bar = box.querySelector(SEL.progressBar);
     if (bar) { const v = parseFloat(bar.getAttribute('aria-valuenow')); if (!isNaN(v)) return v; }
-    const lab = box.querySelector(SEL.progressLabel);
-    const p = parsePct(lab ? lab.textContent : '');
+    const p = parsePct(labTxt);
     return p == null ? 0 : p;
   }
   function courseHasDuration(box) { return /时长\s*[:：]?\s*\d{1,2}\s*[:：]\s*\d{2}/.test((box.textContent || '')); }

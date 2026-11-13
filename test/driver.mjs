@@ -259,6 +259,22 @@ async function main() {
     rec('S10-skip-finished-and-complete', fin === 'COMPLETED' && st.eps.every((p) => p >= 100) && st.log[0] === 1, st);
   } catch (e) { rec('S10-EXCEPTION', false, String(e)); }
 
+  // ---------- Scenario 11: 已完成课程在目录显示“完成”文字（无进度条）→ 判为100%并跳过，不反复跳回本节 ----------
+  try {
+    const url = BASE + '?reset=1&seed=catdone&' + PROJ + '&_t=' + Date.now();
+    await page.goto(url, { timeout: 20000 });
+    await ev(page, "localStorage.removeItem('enaea_state'); localStorage.removeItem('enaea_lock');");
+    await inject(page);
+    await boot(page);
+    await poll(page, "!!(window.__ENAEA_AUTO__ && window.__ENAEA_AUTO__.S) && !!document.querySelector('.collapseList_test')", (v) => v, 10000, 'catdone-ready');
+    const scan = await ev(page, `(async()=>{const ch=await window.__ENAEA_AUTO__.scanCatalog();const all=window.__ENAEA_AUTO__.flatten(ch);const done=all.find(c=>/已刷完课/.test(c.title));const todo=all.find(c=>/待刷课/.test(c.title));const pick=window.__ENAEA_AUTO__.pickNextCourse(ch);return {n:all.length, doneP:done&&done.progress, todoP:todo&&todo.progress, pick:pick&&pick.title};})()`);
+    rec('S11-catalog-finished-detected', scan.n === 2 && scan.doneP === 100 && scan.todoP === 0 && /待刷课/.test(scan.pick || ''), scan);
+    await ev(page, 'window.__ENAEA_AUTO__.Controls.start()');
+    const fin = await poll(page, 'window.__ENAEA_AUTO__.S.phase', (v) => v === 'COMPLETED' || v === 'ERROR', 120000, 's11-complete');
+    const st = await ev(page, `(()=>{const d=window.FIXTURE.data;const cs=d.chapters[0].sections[0].courses;return {phase:window.__ENAEA_AUTO__.S.phase, a:cs[0].episodes.map(e=>e.progress), b:cs[1].episodes.map(e=>e.progress), err:window.__ENAEA_AUTO__.S.lastError};})()`);
+    rec('S11-skip-finished-course-and-complete', fin === 'COMPLETED' && st.a.every((p) => p >= 100) && st.b.every((p) => p >= 100), st);
+  } catch (e) { rec('S11-EXCEPTION', false, String(e)); }
+
   await task.finish({ keep: [] }).catch(() => {});
   const passed = results.filter((r) => r.ok).length;
   console.log('\n===== SUMMARY: ' + passed + '/' + results.length + ' passed =====');

@@ -70,8 +70,25 @@
 
   function load() {
     try { const s = localStorage.getItem(DATA_KEY); if (s) return JSON.parse(s); } catch (e) {}
-    try { const p = new URLSearchParams(location.search); if (p.get('seed') === 'skip') return skipData(); if (p.get('seed') === 'finished') return finishedData(); } catch (e) {}
+    try { const p = new URLSearchParams(location.search); if (p.get('seed') === 'skip') return skipData(); if (p.get('seed') === 'finished') return finishedData(); if (p.get('seed') === 'catdone') return catalogFinishedData(); } catch (e) {}
     return defaultData();
+  }
+  // 验证“已刷完的课程在目录里显示为「完成」文字、无进度条”时，脚本扫描判为100%并跳过，不会反复跳回本节
+  function catalogFinishedData() {
+    return {
+      chapters: [
+        { title: '理论教育', sections: [
+          { title: '政治理论学习', courses: [
+            { title: '已刷完课（一集）', finishedAsText: true, episodes: [
+              { title: '第一集 已刷完', file: 'e1.webm', progress: 100 },
+            ]},
+            { title: '待刷课（一集）', episodes: [
+              { title: '第一集 待刷', file: 'e2.webm', progress: 0 },
+            ]},
+          ]},
+        ]},
+      ],
+    };
   }
   // 验证“已学完的分集显示为「完成」文字、无进度条”时脚本仍能识别完成并跳到下一集
   function finishedData() {
@@ -154,9 +171,14 @@
           box.className = 'section-box_test';
           box.dataset.key = courseKey(ch, sec, co);
           const prog = courseProgress(co);
+          const catFinished = co.finishedAsText && prog >= 100;
           box.innerHTML = '<div class="section-list_test"><div class="list-title_test"><span>' + escapeHtml(co.title) +
-            '</span></div></div><div class="item-progress-wrap_test"><div class="progress-label_test">' + prog +
-            '%</div><div role="progressbar" aria-valuenow="' + prog + '" aria-valuemin="0" aria-valuemax="100" style="display:none"></div></div>';
+            '</span></div></div><div class="item-progress-wrap_test">' +
+            (catFinished
+              ? '<div class="progress-label_test">完成</div>'
+              : '<div class="progress-label_test">' + prog +
+                '%</div><div role="progressbar" aria-valuenow="' + prog + '" aria-valuemin="0" aria-valuemax="100" style="display:none"></div>') +
+            '</div>';
           sc.appendChild(box);
         });
         sub.appendChild(sh); sub.appendChild(sc);
