@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         中国教育干部网络学院 自动连续学习（新版 estudy）
 // @namespace    https://estudy.enaea.edu.cn/
-// @version      1.0.4
+// @version      1.0.5
 // @updateURL    https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @downloadURL  https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @description  新版 estudy.enaea.edu.cn 自动顺序学习：保持 1.0x 正常播放，播放完自动切换下一集/下一课程/下一小节/下一大章；跨页保存进度；右下角控制面板。仅在本学习项目内生效，不改写服务器记录、不倍速、不拖进度条。
@@ -639,6 +639,29 @@
     });
   }
 
+  // 参考“平台真实进度”对齐播放起点：浏览器/播放器可能因本地历史（_h5player_media_progress）
+  // 把进度续到远超平台真实进度的位置（例如平台 13%、却从 93% 续播）——那样只播几秒就“结束”，
+  // 平台进度几乎不涨，随后又被从头重播。这里只在“续播位置明显超过平台真实进度”时回退到平台
+  // 进度点再以 1x 真实观看剩余部分（绝不向前快进超过平台进度，不伪造学时）。
+  async function alignToPlatformProgress(ep) {
+    const v = getVideo();
+    if (!v || !ep || ep.aria == null) return;
+    const P = ep.aria;
+    if (!(P >= 0 && P < 99)) return;
+    const dur = v.duration;
+    if (!isFinite(dur) || dur <= 0) return;
+    const target = Math.max(0, Math.min(dur - 1, (P / 100) * dur));
+    const cur = v.currentTime || 0;
+    const margin = Math.max(4, dur * 0.03);
+    if (cur > target + margin) {
+      const beforePct = Math.round((cur / dur) * 100);
+      try {
+        v.currentTime = target;
+        log('[align] 平台真实进度 ' + Math.round(P) + '%，但续播位置在 ' + beforePct + '%，已回退到 ' + Math.round(P) + '% 继续真实观看');
+      } catch (e) {}
+    }
+  }
+
   /* --------------------------- 单门课程处理 --------------------------- */
   async function handlePlayerCourse() {
     // 先判定“是否为可播放的视频课程”：等待出现（有 src 的视频）或有分集列表
@@ -695,6 +718,8 @@
         await selectEpisode(firstUnfinished.index);
         if (S.phase === PHASE.STOPPED || S.phase === PHASE.ERROR) break;
         if (S.phase === PHASE.PAUSED) continue;
+        // 参考平台真实进度对齐续播起点（修正浏览器历史把进度续到 90%+ 的问题）
+        await alignToPlatformProgress(firstUnfinished);
         setPhase(S.phase, 'PLAYING');
         await ensurePlaying();
         if (S.phase === PHASE.PAUSED || S.phase === PHASE.STOPPED) { if (S.phase === PHASE.PAUSED) continue; break; }
@@ -951,6 +976,9 @@
 
   function buildPanel() {
     if (panelHost) return;
+    // 单实例守卫（二次保险）：若已存在其它实例创建的面板 host，不再创建第二个
+    const exist = document.getElementById('__enaea_panel_host__');
+    if (exist) { return; }
     panelHost = document.createElement('div');
     panelHost.id = '__enaea_panel_host__';
     panelHost.style.cssText = 'position:fixed;z-index:2147483647;right:16px;bottom:16px;';
@@ -1121,6 +1149,18 @@
     if (window.__ENAEA_AUTO_BOOTED__) return;
     window.__ENAEA_AUTO_BOOTED__ = true;
 
+    // 单实例守卫：同一文档只允许一个实例（ScriptCat 与手动注入、或 ScriptCat 里装了两份时，
+    // 跨脚本世界仍共享同一 DOM，可据此互相感知），否则会出现双面板/双引擎互相打架，
+    // 表现为“点开始没反应/两个面板一个运行一个已停止”。
+    try {
+      if (document.getElementById('__enaea_panel_host__') ||
+          document.documentElement.getAttribute('data-enaea-active') === '1') {
+        log('[single-instance] 已存在自动学习实例，本实例退出以避免双面板/双引擎。');
+        return;
+      }
+      document.documentElement.setAttribute('data-enaea-active', '1');
+    } catch (e) {}
+
     await loadState();
 
     if (!projectMatches()) {
@@ -1174,7 +1214,7 @@
     readEpisodes, handlePlayerCourse, handleStepError,
     isCatalogPage, isPlayerPage, projectMatches,
     engineLoop, boot, updatePanel, markEpisodeDoneLocal, localDone,
-    _internal: { getVideo, ensurePlaying, waitForEnded, selectEpisode, videoTimeInfo, enterCourse, goToCatalog, expandAllCollapses, videoMatchesEpisode, waitEpisodePercent, parseDurSec },
+    _internal: { getVideo, ensurePlaying, waitForEnded, selectEpisode, videoTimeInfo, enterCourse, goToCatalog, expandAllCollapses, videoMatchesEpisode, waitEpisodePercent, parseDurSec, alignToPlatformProgress },
   };
 
   boot();

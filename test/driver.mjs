@@ -175,6 +175,50 @@ async function main() {
     rec('S6-completed', st.phase === 'COMPLETED', { phase: st.phase, err: st.err });
   } catch (e) { rec('S6-EXCEPTION', false, String(e)); }
 
+  // ---------- Scenario 7: 参考平台真实进度对齐（修正浏览器历史把进度续到90%+） ----------
+  try {
+    await freshStart(page);
+    const r = await ev(page, `(async()=>{
+      window.FIXTURE.renderPlayer('理论教育§政治理论学习§课程A（两集）');
+      const v=document.querySelector('video');
+      v.muted=true; v.src='e1.webm'; try{v.load();}catch(e){}
+      await new Promise((res)=>{ if(v.readyState>=1&&v.duration>0) return res(); v.addEventListener('loadedmetadata',()=>res(),{once:true}); setTimeout(res,4000); });
+      const it=document.querySelector('.item-wrap_test[data-index="0"]');
+      it.querySelector('.rate-span_test').textContent='10%';
+      it.querySelector('[role=progressbar]').setAttribute('aria-valuenow','10');
+      const dur=v.duration||6;
+      try{ v.currentTime=dur*0.9; }catch(e){}
+      await new Promise(r=>setTimeout(r,150));
+      const beforeFrac=v.currentTime/dur;
+      const eps=window.__ENAEA_AUTO__.readEpisodes();
+      const aria=eps[0]&&eps[0].aria;
+      await window.__ENAEA_AUTO__._internal.alignToPlatformProgress(eps[0]);
+      const afterFrac=v.currentTime/dur;
+      return {beforeFrac, aria, afterFrac, dur};
+    })()`);
+    rec('S7-align-to-platform-progress', r.aria === 10 && r.beforeFrac > 0.8 && r.afterFrac > 0.03 && r.afterFrac < 0.2, r);
+  } catch (e) { rec('S7-EXCEPTION', false, String(e)); }
+
+  // ---------- Scenario 8: 单实例守卫（同world重复注入 / 跨world标记）都只保留一个面板 ----------
+  try {
+    await freshStart(page);
+    const c1 = await ev(page, 'document.querySelectorAll("#__enaea_panel_host__").length');
+    await inject(page); // 第二次注入同一脚本
+    await page.waitForTimeout(700);
+    const c2 = await ev(page, 'document.querySelectorAll("#__enaea_panel_host__").length');
+    rec('S8-single-instance-sameworld', c1 === 1 && c2 === 1, { c1, c2 });
+  } catch (e) { rec('S8a-EXCEPTION', false, String(e)); }
+  try {
+    await page.goto(BASE + '?reset=1&' + PROJ + '&_t=' + Date.now(), { timeout: 20000 });
+    await ev(page, "localStorage.removeItem('enaea_state'); localStorage.removeItem('enaea_lock');");
+    // 模拟“另一个脚本世界已注入实例”留下的标记
+    await ev(page, "document.documentElement.setAttribute('data-enaea-active','1');");
+    await inject(page);
+    await page.waitForTimeout(700);
+    const b = await ev(page, '({hosts:document.querySelectorAll("#__enaea_panel_host__").length, booted:!!window.__ENAEA_AUTO_BOOTED__})');
+    rec('S8-single-instance-crossworld', b.hosts === 0 && b.booted === true, b);
+  } catch (e) { rec('S8b-EXCEPTION', false, String(e)); }
+
   await task.finish({ keep: [] }).catch(() => {});
   const passed = results.filter((r) => r.ok).length;
   console.log('\n===== SUMMARY: ' + passed + '/' + results.length + ' passed =====');

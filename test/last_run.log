@@ -1,6 +1,6 @@
 [ego-browser:notice] Ego Lite update is available (current 0.6.2.9). Finish the current browser task, then ask the user before running `ego-browser upgrade`; re-read the ego-browser Skill afterward.
 PASS S1-idle-init :: {"idle":"IDLE"}
-PASS S1-playback-rate-1x :: {"r":1,"d":6.008}
+PASS S1-playback-rate-1x :: {"r":1,"d":null}
 PASS S1-phase-completed :: {"phase":"COMPLETED","err":""}
 PASS S1-all-courses-100 :: [{"t":"课程A（两集）","p":100,"eps":[100,100]},{"t":"课程B（一集）","p":100,"eps":[100]},{"t":"课程C（一集）","p":100,"eps":[100]},{"t":"课程D（一集）","p":100,"eps":[100]},{"t":"课程E（一集）","p":100,"eps":[100]}]
 PASS S1-completed-count :: {"c":5,"t":5}
@@ -9,22 +9,19 @@ PASS S1-no-restart-after-complete :: {"phase":"COMPLETED","playing":false}
 PASS S2-phase-stopped :: {"phase":"STOPPED","playing":false}
 PASS S2-video-paused :: {"phase":"STOPPED","playing":false}
 PASS S2-no-further-progress :: {"before":{"sum":0,"n":6,"done":0},"after":{"sum":0,"n":6,"done":0}}
-FAIL S2-no-auto-resume :: {"st2":"IDLE"}
+PASS S2-no-auto-resume :: {"st2":"STOPPED"}
 PASS S3-paused-state :: {"phase":"PAUSED","paused":true}
 PASS S3-resumed-running :: {"phase":"RUNNING","paused":false}
 PASS S4-auto-resume-running :: {"phaseAfterReload":"RUNNING","mid":{"sum":100,"n":6,"done":1}}
 PASS S4-completes-after-reload :: {"phase":"COMPLETED","done":6,"n":6}
 PASS S5-nonvideo-marked-manual :: {"manualCount":1,"manualKey0":"理论教育§政治理论学习§课程A（两集）","phase":"RUNNING"}
 PASS S5-rest-completes :: {"fin":"COMPLETED"}
+PASS S6-start-from-first-episode :: {"first":0,"log":[0,1,2]}
+PASS S6-all-episodes-100 :: [100,100,100]
+PASS S6-completed :: {"phase":"COMPLETED","err":""}
+PASS S7-align-to-platform-progress :: {"beforeFrac":0.8999999999999999,"aria":10,"afterFrac":0.1,"dur":6.008}
+PASS S8-single-instance-sameworld :: {"c1":1,"c2":1}
+PASS S8-single-instance-crossworld :: {"hosts":0,"booted":true}
 
-===== SUMMARY: 16/17 passed =====
-FAILED: [
- {
-  "name": "S2-no-auto-resume",
-  "ok": false,
-  "detail": {
-   "st2": "IDLE"
-  }
- }
-]
+===== SUMMARY: 23/23 passed =====
 
