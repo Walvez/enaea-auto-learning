@@ -1,13 +1,22 @@
 # 中国教育干部网络学院（新版 estudy）自动连续学习脚本
 
+> 当前版本：**v1.0.8** ｜ 适用平台：https://estudy.enaea.edu.cn ｜ 运行方式：纯前端用户脚本（ScriptCat）
+
 一个 **ScriptCat（`.user.js`）用户脚本**：在 https://estudy.enaea.edu.cn 新版平台上，以 **1.0x 正常倍速**自动、连续地完成当前项目内**所有未完成的视频课程**，自动接续「下一集 / 下一课程 / 下一小节 / 下一大章」，直到全部指定视频课程完成即停止。
 不加速、不拖动进度（不 seek）、不伪造学时、不调用任何写接口、不上传/保存 Cookie 或 Token。
 
-> **一键安装（推荐）**：已装 ScriptCat 时，直接打开
-> https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
-> 即可弹出安装界面。仓库主页：https://github.com/Walvez/enaea-auto-learning
+---
 
-> 核心原则：**平台"官方显示"的进度才算完成**（目录/分集进度条 `aria-valuenow` 与 "N%" 文案）。脚本不会把 `currentTime≈duration` 当成平台完成。
+## ⚡ 三秒装好（TL;DR）
+
+1. 浏览器先装好 **ScriptCat** 扩展；
+2. 打开下面这个链接，ScriptCat 会弹出安装页 → 点 **安装**：
+   👉 **https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js**
+3. 登录 https://estudy.enaea.edu.cn，进入「必修课」目录页 → **右下角出现 ENAEA 面板**即成功 → 点 **【开始自动学习】**。
+
+> 详细步骤、更新、排错、卸载见下方 **第 2 章 安装方法**。
+
+> 核心原则：**平台“官方显示”的进度才算完成**（目录/分集进度条 `aria-valuenow` 与 “N%” 文案或「完成」文字）。脚本不会把 `currentTime≈duration` 当成平台完成。
 
 ---
 
@@ -15,24 +24,79 @@
 
 | 文件 | 说明 |
 |---|---|
-| `enaea-auto-learning.user.js` | 脚本本体（单文件，约 1016 行） |
-| `README.md` | 本说明 |
-| `TEST_REPORT.md` | 测试报告（夹具回归 + 真实站勘察结论，明确区分模拟/真实） |
+| `enaea-auto-learning.user.js` | 脚本本体（单文件，约 1260 行，当前 v1.0.8） |
+| `README.md` | 本说明（含**详细安装方法**，见第 2 章） |
+| `TEST_REPORT.md` | 测试报告（夹具回归 + **真实站点验证**，明确区分模拟/真实） |
 | `test/fixture.html` | 本地 SPA 夹具，模拟目录页 + 播放页（类名前缀与真实站一致） |
-| `test/driver.mjs` | ego-browser 驱动的回归测试脚本（注入 userscript 跑场景） |
+| `test/driver.mjs` | ego-browser 驱动的夹具回归脚本（注入 userscript 跑场景） |
+| `test/real_site_test.mjs` | **真实站点**端到端验证脚本（在已登录 real 页注入并验证选课/跳过已完成课） |
 | `test/e1.webm` `e2.webm` `e3.webm` | 夹具用 6 秒短视频（libvpx 生成） |
 
 ---
 
-## 2. 安装
+## 2. 安装方法（详细）
 
-1. 安装 **ScriptCat** 浏览器扩展（Chrome/Edge）。
-2. 打开 ScriptCat → 新建脚本 / 导入脚本，把 `enaea-auto-learning.user.js` 的全部内容粘贴进来并保存。
-   - 或直接把 `.user.js` 文件拖入 ScriptCat 导入。
-3. 打开 https://estudy.enaea.edu.cn 并登录，进入「必修课 / 选修课」目录页。
-4. 页面**右下角**出现悬浮面板即安装成功（也可在 ScriptCat 菜单里看到脚本命令）。
+### 2.0 前置：先装浏览器扩展 ScriptCat
 
-脚本通过 `@match https://estudy.enaea.edu.cn/web/*` 生效，纯页面内运行，**不依赖任何本地服务**。
+脚本必须运行在 **ScriptCat**（用户脚本管理器）里。浏览器支持 **Chrome / Edge / 其它 Chromium 内核浏览器**。
+
+1. 打开扩展商店安装 ScriptCat（官方开源项目，GitHub: `scriptscat/scriptcat`，官网 https://scriptcat.org）：
+   - Chrome 应用商店搜索 **ScriptCat** 安装；
+   - Edge：Edge 加载项里搜索 **ScriptCat** 安装。
+2. 安装后浏览器右上角会出现 ScriptCat 图标（没有的话点「扩展」拼图图标里固定它）。
+3. 首次使用若被浏览器询问权限，按提示**允许**（需要「读取和更改您在所有网站上的数据」，这是用户脚本正常工作的前提）。
+
+> 若你已在用 Tampermonkey/Violentmonkey 等其它管理器：本脚本按标准 UserScript 编写，理论上也可导入，**但仅在 ScriptCat 上做过完整验证**，建议优先用 ScriptCat。
+
+### 2.1 方式 A：一键 URL 安装（推荐，可自动更新）
+
+这是最省事、且以后能**自动收到更新**的方式。
+
+1. 确认已装好 ScriptCat（见 2.0）。
+2. 在浏览器地址栏打开脚本地址（或直接点这里）：
+   👉 https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
+3. ScriptCat 会自动打开**安装确认页**，显示脚本名「中国教育干部网络学院 自动连续学习（新版 estudy）」、版本号、`@match https://estudy.enaea.edu.cn/web/*` 等。
+4. 点页面上的 **【安装】** 按钮。
+5. 看到提示「安装成功」即可。
+
+> 该脚本头部带 `@updateURL` / `@downloadURL`，指向同一 raw 地址。以后我发布新版本，你在 ScriptCat 里点「检查更新」或等它自动检查，就能升级到最新版（见 2.3）。
+
+### 2.2 方式 B：本地文件导入（离线 / 无网络时）
+
+1. 拿到脚本文件 **`enaea-auto-learning.user.js`**（仓库里就有）。
+2. 打开 ScriptCat 面板 → **「+」/「新建脚本」→「导入」**，选择该文件；或直接把 `.user.js` 文件**拖拽**到 ScriptCat 窗口里。
+3. 确认信息后点「安装/保存」。
+4. 若为手动粘贴：ScriptCat → 新建脚本 → 把文件**全部内容**粘贴进编辑器 → 保存（Ctrl/Cmd+S）。
+
+### 2.3 升级到最新版
+
+- **自动更新（方式 A 安装的）**：ScriptCat 默认会定期检查 `@updateURL`。也可手动：打开 ScriptCat → 脚本列表 → 找到本脚本 → 点「检查更新 / 更新」。
+- **手动更新（方式 B 安装的）**：重新下载最新 `enaea-auto-learning.user.js`，在 ScriptCat 里覆盖保存。
+- **确认当前版本**：打开脚本编辑器，头部 `// @version  x.y.z` 即版本；或在 ScriptCat 脚本详情里看版本。当前应为 **1.0.8**。
+
+### 2.4 安装成功怎么确认
+
+1. 登录并进入 https://estudy.enaea.edu.cn 的「必修课 / 选修课」**目录页**（URL 含 `/web/...requiredCourse...`）。
+2. 页面**右下角**应出现蓝色标题栏的 **ENAEA 悬浮面板**（含「当前大章 / 当前课程 / 已完成课程 / 开始自动学习」等）。
+3. 点 ScriptCat 图标 → 应能在菜单里看到本脚本（含「▶ 开始自动学习 / ⏸ 暂停 / ⏯ 继续 / ⏹ 停止 / 🔄 重新扫描目录」等命令）。
+4. 面板出现且按钮可点 = 安装成功。
+
+脚本通过 `@match https://estudy.enaea.edu.cn/web/*` 生效，纯页面内运行，**不依赖任何本地服务、不需要命令行**，关掉本机其它程序也能用。
+
+### 2.5 停用 / 卸载
+
+- **临时停用**：在面板点【停止】即可停止自动学习（脚本仍在，随时可再开始）。
+- **卸载**：ScriptCat → 脚本列表 → 本脚本 →「删除/卸载」。删除后刷新学习页，右下角面板消失。
+
+### 2.6 装不上 / 没出现面板？排查清单
+
+| 现象 | 排查 |
+|---|---|
+| 打开脚本链接没有弹出安装页 | 未安装 ScriptCat，或扩展被禁用；先按 2.0 安装并允许权限 |
+| 装好了但页面没有右下角面板 | ①必须**已登录**并处在 `estudy.enaea.edu.cn/web/...` 目录页；②刷新一次页面；③确认浏览器控制台无报错；④确认 ScriptCat 里本脚本**处于启用状态** |
+| 出现**两个**面板 / 点「开始」没反应 | 同一页面被注入了两份脚本。ScriptCat 里只保留**一份**本脚本，删掉重复/旧来源；关闭调试用残留标签页后刷新（1.0.5 起已内置单实例守卫，正常只会有一个） |
+| 升级后行为没变 | ScriptCat 里没真正更新，按 2.3 手动「检查更新」；确认 `@version` 已是 1.0.8 |
+| 提示“已静音自动播放” | 浏览器自动播放策略限制，脚本会静音兜底继续（学时照常累计）；点一下页面任意处即可恢复声音（详见第 12 章） |
 
 ---
 
