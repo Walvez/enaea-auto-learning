@@ -1,0 +1,20 @@
+PASS S1-idle-init :: {"idle":"IDLE"}
+PASS S1-playback-rate-1x :: {"r":1,"d":6.008}
+PASS S1-phase-completed :: {"phase":"COMPLETED","err":""}
+PASS S1-all-courses-100 :: [{"t":"课程A（两集）","p":100,"eps":[100,100]},{"t":"课程B（一集）","p":100,"eps":[100]},{"t":"课程C（一集）","p":100,"eps":[100]},{"t":"课程D（一集）","p":100,"eps":[100]},{"t":"课程E（一集）","p":100,"eps":[100]}]
+PASS S1-completed-count :: {"c":5,"t":5}
+PASS S1-single-attempt-each :: {"理论教育§政治理论学习§课程A（两集）":1,"理论教育§政治理论学习§课程B（一集）":1,"理论教育§维护国家安全§课程C（一集）":1,"党性教育（含VR参观）§红色VR云参观沉浸式体验课程§课程D（一集）":1,"知识技能教育§学习方法和能力提升§课程E（一集）":1}
+PASS S1-no-restart-after-complete :: {"phase":"COMPLETED","playing":false}
+PASS S2-phase-stopped :: {"phase":"STOPPED","playing":false}
+PASS S2-video-paused :: {"phase":"STOPPED","playing":false}
+PASS S2-no-further-progress :: {"before":{"sum":0,"n":6,"done":0},"after":{"sum":0,"n":6,"done":0}}
+PASS S2-no-auto-resume :: {"st2":"STOPPED"}
+PASS S3-paused-state :: {"phase":"PAUSED","paused":true}
+PASS S3-resumed-running :: {"phase":"RUNNING","paused":false}
+PASS S4-auto-resume-running :: {"phaseAfterReload":"RUNNING","mid":{"sum":100,"n":6,"done":1}}
+PASS S4-completes-after-reload :: {"phase":"COMPLETED","done":6,"n":6}
+PASS S5-nonvideo-marked-manual :: {"manualCount":1,"manualKey0":"理论教育§政治理论学习§课程A（两集）","phase":"RUNNING"}
+PASS S5-rest-completes :: {"fin":"COMPLETED"}
+
+===== SUMMARY: 17/17 passed =====
+

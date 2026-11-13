@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ENAEA Fixture</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", sans-serif; margin: 12px; color: #222; }
+  .hint { background: #fff8e1; border: 1px solid #ffe08a; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+  .grt-collapse-header { cursor: pointer; padding: 8px 10px; background: #eef2fb; border-radius: 6px; margin: 4px 0; font-weight: 600; }
+  .grt-collapse-content { display: none; padding-left: 14px; }
+  .grt-collapse-item-active > .grt-collapse-content { display: block; }
+  .section-box_test { display: flex; justify-content: space-between; align-items: center; border: 1px solid #dbe0ee; border-radius: 8px; padding: 8px 10px; margin: 6px 0; cursor: pointer; background:#fff; }
+  .section-box_test:hover { background:#f5f8ff; }
+  .list-title_test span { font-size: 14px; }
+  .progress-label_test { color:#3b70ff; font-weight:700; }
+  .player-header { display:flex; gap:16px; align-items:center; margin-bottom:10px; }
+  .return-icon_test { cursor:pointer; color:#3b70ff; }
+  .play-list_test { margin-top:10px; border-top:1px solid #eee; }
+  .item-wrap_test { display:flex; justify-content:space-between; padding:8px 6px; border-bottom:1px solid #f0f0f0; cursor:pointer; }
+  .item-wrap_test[data-checked="true"] { background:#eef3ff; }
+  .name-span_test { font-size:13px; }
+  .rate-span_test { color:#3b70ff; font-weight:700; margin-left:8px; }
+  video { width: 320px; background:#000; }
+</style>
+</head>
+<body>
+<div class="hint">本地 Fixture 测试页（非真实站点）。用于验证导航逻辑；视频为 1 秒级测试片。</div>
+<div id="app"></div>
+<script>
+(function () {
+  const DATA_KEY = 'FIXTURE_DATA_V1';
+
+  function defaultData() {
+    return {
+      chapters: [
+        { title: '理论教育', sections: [
+          { title: '政治理论学习', courses: [
+            { title: '课程A（两集）', episodes: [
+              { title: '第一集 课程A', file: 'e1.webm', progress: 0 },
+              { title: '第二集 课程A', file: 'e2.webm', progress: 0 },
+            ]},
+            { title: '课程B（一集）', episodes: [
+              { title: '第一集 课程B', file: 'e3.webm', progress: 0 },
+            ]},
+          ]},
+          { title: '维护国家安全', courses: [
+            { title: '课程C（一集）', episodes: [
+              { title: '第一集 课程C', file: 'e1.webm', progress: 0 },
+            ]},
+          ]},
+        ]},
+        { title: '党性教育（含VR参观）', sections: [
+          { title: '红色VR云参观沉浸式体验课程', courses: [
+            { title: '课程D（一集）', episodes: [
+              { title: '第一集 课程D', file: 'e2.webm', progress: 0 },
+            ]},
+          ]},
+        ]},
+        { title: '知识技能教育', sections: [
+          { title: '学习方法和能力提升', courses: [
+            { title: '课程E（一集）', episodes: [
+              { title: '第一集 课程E', file: 'e3.webm', progress: 0 },
+            ]},
+          ]},
+        ]},
+      ],
+    };
+  }
+
+  function load() {
+    try { const s = localStorage.getItem(DATA_KEY); if (s) return JSON.parse(s); } catch (e) {}
+    return defaultData();
+  }
+  // URL params: reset=1 必须在读取数据之前处理，否则会读到上一次残留的进度
+  try {
+    const p0 = new URLSearchParams(location.search);
+    if (p0.get('reset') === '1') { localStorage.removeItem(DATA_KEY); }
+  } catch (e) {}
+  let data = load();
+  function save() { try { localStorage.setItem(DATA_KEY, JSON.stringify(data)); } catch (e) {} }
+
+  function courseProgress(course) {
+    if (!course.episodes.length) return 0;
+    const sum = course.episodes.reduce((a, e) => a + (e.progress || 0), 0);
+    return Math.round(sum / course.episodes.length);
+  }
+  function findCourse(key) {
+    for (const c of data.chapters) for (const s of c.sections) for (const co of s.courses) {
+      if (courseKey(c, s, co) === key) return { chapter: c, section: s, course: co };
+    }
+    return null;
+  }
+  function courseKey(chapter, section, course) { return chapter.title + '§' + section.title + '§' + course.title; }
+
+  const app = document.getElementById('app');
+  let currentPlayer = null; // {key, chapter, section, course, activeIndex}
+
+  /* ------------------------- Catalog render ------------------------- */
+  function renderCatalog() {
+    currentPlayer = null;
+    const root = document.createElement('div');
+    root.className = 'collapseList_test';
+    data.chapters.forEach((ch) => {
+      const item = document.createElement('div');
+      item.className = 'grt-collapse-item';
+      const header = document.createElement('div');
+      header.className = 'grt-collapse-header';
+      header.textContent = ch.title;
+      const content = document.createElement('div');
+      content.className = 'grt-collapse-content';
+      ch.sections.forEach((sec) => {
+        const sub = document.createElement('div');
+        sub.className = 'grt-collapse-item';
+        const sh = document.createElement('div');
+        sh.className = 'grt-collapse-header';
+        sh.textContent = sec.title;
+        const sc = document.createElement('div');
+        sc.className = 'grt-collapse-content';
+        sec.courses.forEach((co) => {
+          const box = document.createElement('div');
+          box.className = 'section-box_test';
+          box.dataset.key = courseKey(ch, sec, co);
+          const prog = courseProgress(co);
+          box.innerHTML = '<div class="section-list_test"><div class="list-title_test"><span>' + escapeHtml(co.title) +
+            '</span></div></div><div class="item-progress-wrap_test"><div class="progress-label_test">' + prog +
+            '%</div><div role="progressbar" aria-valuenow="' + prog + '" aria-valuemin="0" aria-valuemax="100" style="display:none"></div></div>';
+          sc.appendChild(box);
+        });
+        sub.appendChild(sh); sub.appendChild(sc);
+        content.appendChild(sub);
+      });
+      item.appendChild(header); item.appendChild(content);
+      root.appendChild(item);
+    });
+    app.innerHTML = '';
+    app.appendChild(root);
+  }
+
+  function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  /* ------------------------- Player render ------------------------- */
+  function renderPlayer(key) {
+    const f = findCourse(key);
+    if (!f) { renderCatalog(); return; }
+    const { chapter, section, course } = f;
+    currentPlayer = { key, chapter, section, course, activeIndex: -1 };
+    const nonVideo = course.nonVideo === true || (course.episodes && course.episodes.length === 0);
+    const wrap = document.createElement('div');
+    wrap.className = 'player_test';
+    wrap.innerHTML =
+      '<div class="player-header"><span class="return-icon_test">◀ 课程学习</span>' +
+      '<strong>' + escapeHtml(course.title) + '</strong></div>' +
+      (nonVideo
+        ? '<div class="vr-placeholder_test">VR 云参观沉浸式体验 / 无视频课程（需线下或另行完成）</div>'
+        : '<video muted playsinline controls></video><div class="play-list_test"></div>');
+    const list = wrap.querySelector('.play-list_test');
+    if (list) course.episodes.forEach((ep, i) => {
+      const it = document.createElement('div');
+      it.className = 'item-wrap_test';
+      it.dataset.checked = 'false';
+      it.dataset.index = i;
+      const p = ep.progress || 0;
+      it.innerHTML =
+        '<div class="item-title_test"><span class="name-span_test">' + escapeHtml(ep.title) + '</span>' +
+        '<span class="rate-span_test">' + p + '%</span>' +
+        '<div role="progressbar" aria-valuenow="' + p + '" aria-valuemin="0" aria-valuemax="100" style="display:none"></div></div>' +
+        '<div class="item-info_test">测试片</div>';
+      list.appendChild(it);
+    });
+    app.innerHTML = '';
+    app.appendChild(wrap);
+    layoutVideoAudio(wrap.querySelector('video'));
+  }
+
+  function layoutVideoAudio(v) { /* noop */ }
+
+  let players = new WeakMap();
+
+  function activateEpisode(index) {
+    if (!currentPlayer) return;
+    const course = currentPlayer.course;
+    const eps = course.episodes;
+    const v = app.querySelector('video');
+    // set active flags
+    [...app.querySelectorAll('.item-wrap_test')].forEach((it, i) => {
+      it.dataset.checked = (i === index) ? 'true' : 'false';
+    });
+    currentPlayer.activeIndex = index;
+    if (!v) return;
+    v.onended = () => {
+      const ep = eps[index];
+      ep.progress = 100;
+      save();
+      // update item aria
+      const item = app.querySelector('.item-wrap_test[data-index="' + index + '"]');
+      if (item) {
+        const bar = item.querySelector('[role=progressbar]'); if (bar) bar.setAttribute('aria-valuenow', '100');
+        const rs = item.querySelector('.rate-span_test'); if (rs) rs.textContent = '100%';
+      }
+      if (typeof v._onEndedNote === 'function') v._onEndedNote();
+    };
+    v.src = eps[index].file;
+    try { v.currentTime = 0; } catch (e) {}
+    v.load();
+    const pr = v.play();
+    if (pr && pr.catch) pr.catch(() => {});
+  }
+
+  /* ------------------------- Event delegation ------------------------- */
+  app.addEventListener('click', function (e) {
+    const header = e.target.closest('.grt-collapse-header');
+    if (header) {
+      const item = header.parentElement;
+      item.classList.toggle('grt-collapse-item-active');
+      return;
+    }
+    const box = e.target.closest('.section-box_test');
+    if (box && box.dataset.key) { renderPlayer(box.dataset.key); return; }
+    const ret = e.target.closest('.return-icon_test');
+    if (ret) { renderCatalog(); return; }
+    const item = e.target.closest('.item-wrap_test');
+    if (item && currentPlayer) {
+      const idx = parseInt(item.dataset.index, 10);
+      if (idx !== currentPlayer.activeIndex) activateEpisode(idx);
+      return;
+    }
+  });
+
+  /* ------------------------- Public API for tests ------------------------- */
+  window.FIXTURE = {
+    get data() { return data; },
+    reset() { data = defaultData(); save(); renderCatalog(); },
+    renderCatalog, renderPlayer, save,
+    setAllProgress(p) {
+      for (const c of data.chapters) for (const s of c.sections) for (const co of s.courses)
+        co.episodes.forEach((e) => (e.progress = p));
+      save();
+    },
+    forceEndCurrent() {
+      const v = app.querySelector('video');
+      if (v) { try { v.currentTime = Math.max(0, (v.duration || 1) - 0.05); } catch (e) {} }
+    },
+    get current() { return currentPlayer; },
+  };
+
+  // URL params: reset=1 to reset data on load
+  try {
+    const p = new URLSearchParams(location.search);
+    if (p.get('reset') === '1') { localStorage.removeItem(DATA_KEY); }
+  } catch (e) {}
+
+  renderCatalog();
+})();
+</script>
+</body>
+</html>
