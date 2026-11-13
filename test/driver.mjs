@@ -158,6 +158,23 @@ async function main() {
     rec('S5-rest-completes', fin === 'COMPLETED', { fin });
   } catch (e) { rec('S5-EXCEPTION', false, String(e)); }
 
+  // ---------- Scenario 6: 平台把后面某集设为当前集时，仍从第一集(最小未完成)开始，不跳集 ----------
+  try {
+    const url = BASE + '?reset=1&seed=skip&' + PROJ + '&_t=' + Date.now();
+    await page.goto(url, { timeout: 20000 });
+    await ev(page, "localStorage.removeItem('enaea_state'); localStorage.removeItem('enaea_lock');");
+    await inject(page);
+    await boot(page);
+    await poll(page, "!!(window.__ENAEA_AUTO__ && window.__ENAEA_AUTO__.S) && !!document.querySelector('.collapseList_test')", (v) => v, 10000, 'seed-ready');
+    await ev(page, 'window.FIXTURE.activationLog = []');
+    await ev(page, 'window.__ENAEA_AUTO__.Controls.start()');
+    const phase = await poll(page, 'window.__ENAEA_AUTO__.S.phase', (v) => v === 'COMPLETED' || v === 'ERROR', 120000, 'skip-complete');
+    const st = await ev(page, `(()=>{const d=window.FIXTURE.data;const co=d.chapters[0].sections[0].courses[0];return {phase:window.__ENAEA_AUTO__.S.phase, eps:co.episodes.map(e=>e.progress), log:(window.FIXTURE.activationLog||[]).slice(0,8), err:window.__ENAEA_AUTO__.S.lastError};})()`);
+    rec('S6-start-from-first-episode', st.log[0] === 0, { first: st.log[0], log: st.log });
+    rec('S6-all-episodes-100', st.eps.length === 3 && st.eps.every((p) => p >= 100), st.eps);
+    rec('S6-completed', st.phase === 'COMPLETED', { phase: st.phase, err: st.err });
+  } catch (e) { rec('S6-EXCEPTION', false, String(e)); }
+
   await task.finish({ keep: [] }).catch(() => {});
   const passed = results.filter((r) => r.ok).length;
   console.log('\n===== SUMMARY: ' + passed + '/' + results.length + ' passed =====');

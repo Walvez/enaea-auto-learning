@@ -70,7 +70,24 @@
 
   function load() {
     try { const s = localStorage.getItem(DATA_KEY); if (s) return JSON.parse(s); } catch (e) {}
+    try { const p = new URLSearchParams(location.search); if (p.get('seed') === 'skip') return skipData(); } catch (e) {}
     return defaultData();
+  }
+  // 用于验证“进入课程时平台把后面某集设为当前集”时，脚本是否仍从第一集(最小未完成)开始，不跳集
+  function skipData() {
+    return {
+      chapters: [
+        { title: '理论教育', sections: [
+          { title: '政治理论学习', courses: [
+            { title: '跳集测试（三集）', initialActiveIndex: 2, episodes: [
+              { title: '第一集 跳集测试', file: 'e1.webm', progress: 0 },
+              { title: '第二集 跳集测试', file: 'e2.webm', progress: 0 },
+              { title: '第三集 跳集测试', file: 'e3.webm', progress: 0 },
+            ]},
+          ]},
+        ]},
+      ],
+    };
   }
   // URL params: reset=1 必须在读取数据之前处理，否则会读到上一次残留的进度
   try {
@@ -171,6 +188,14 @@
     app.innerHTML = '';
     app.appendChild(wrap);
     layoutVideoAudio(wrap.querySelector('video'));
+    // 模拟“平台上次停在某一集”：把某集设为当前集并预载其视频（不播放、不记入激活日志）
+    if (typeof course.initialActiveIndex === 'number' && course.episodes[course.initialActiveIndex]) {
+      const ii = course.initialActiveIndex;
+      [...wrap.querySelectorAll('.item-wrap_test')].forEach((it, i) => { it.dataset.checked = (i === ii) ? 'true' : 'false'; });
+      currentPlayer.activeIndex = ii;
+      const vv = wrap.querySelector('video');
+      if (vv) { vv.src = course.episodes[ii].file; try { vv.load(); } catch (e) {} }
+    }
   }
 
   function layoutVideoAudio(v) { /* noop */ }
@@ -179,6 +204,7 @@
 
   function activateEpisode(index) {
     if (!currentPlayer) return;
+    if (Array.isArray(window.FIXTURE && window.FIXTURE.activationLog)) window.FIXTURE.activationLog.push(index);
     const course = currentPlayer.course;
     const eps = course.episodes;
     const v = app.querySelector('video');
@@ -230,6 +256,7 @@
   /* ------------------------- Public API for tests ------------------------- */
   window.FIXTURE = {
     get data() { return data; },
+    activationLog: [],
     reset() { data = defaultData(); save(); renderCatalog(); },
     renderCatalog, renderPlayer, save,
     setAllProgress(p) {

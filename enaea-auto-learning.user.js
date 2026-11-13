@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         中国教育干部网络学院 自动连续学习（新版 estudy）
 // @namespace    https://estudy.enaea.edu.cn/
-// @version      1.0.2
+// @version      1.0.3
 // @updateURL    https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @downloadURL  https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @description  新版 estudy.enaea.edu.cn 自动顺序学习：保持 1.0x 正常播放，播放完自动切换下一集/下一课程/下一小节/下一大章；跨页保存进度；右下角控制面板。仅在本学习项目内生效，不改写服务器记录、不倍速、不拖进度条。
@@ -231,6 +231,17 @@
     return ((span || tt).textContent || '').replace(/\s+/g, ' ').trim();
   }
   function parsePct(txt) { const m = String(txt || '').match(/(\d+(?:\.\d+)?)\s*%/); return m ? parseFloat(m[1]) : null; }
+  // 解析分集时长文案，如「29 分 58 秒」「1:02:03」「29:06」→ 秒
+  function parseDurSec(txt) {
+    const s = String(txt || '');
+    let m = s.match(/(\d+)\s*分\s*(\d+)\s*秒/);
+    if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    m = s.match(/(\d+)\s*分/);
+    if (m) return parseInt(m[1], 10) * 60;
+    m = s.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (m) { return m[3] ? parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10) : parseInt(m[1], 10) * 60 + parseInt(m[2], 10); }
+    return null;
+  }
   function courseProgress(box) {
     const bar = box.querySelector(SEL.progressBar);
     if (bar) { const v = parseFloat(bar.getAttribute('aria-valuenow')); if (!isNaN(v)) return v; }
@@ -436,7 +447,13 @@
   }
 
   function readEpisodes() {
-    const items = qa(SEL.itemWrap);
+    // 只在播放器右侧「目录(play-list)」容器内查找分集，避免把下方“授课讲师/简介”里
+    // 同样带 item-wrap_ 类的信息块误当成一集（否则会被当未完成分集反复点开失败）。
+    const root = q(SEL.playList) || document;
+    const items = qa(SEL.itemWrap, root).filter((it) => {
+      // 真正的分集一定带分集名(name-span)或进度指示(progressbar/rate-span)
+      return !!(it.querySelector(SEL.episodeName) || it.querySelector(SEL.progressBar) || it.querySelector(SEL.rateSpan));
+    });
     return items.map((it, i) => {
       const nameEl = it.querySelector(SEL.episodeName) || it;
       const bar = it.querySelector(SEL.progressBar);
@@ -444,8 +461,17 @@
       if (bar) { const v = parseFloat(bar.getAttribute('aria-valuenow')); if (!isNaN(v)) aria = v; }
       if (aria == null) { const rs = it.querySelector(SEL.rateSpan); if (rs) aria = parsePct(rs.textContent); }
       const active = it.getAttribute('data-checked') === 'true';
-      return { index: i, title: (nameEl.textContent || '').replace(/\s+/g, ' ').trim(), aria, active, el: it };
+      const infoEl = it.querySelector('[class*="item-info_"]');
+      const durSec = infoEl ? parseDurSec(infoEl.textContent) : null;
+      return { index: i, title: (nameEl.textContent || '').replace(/\s+/g, ' ').trim(), aria, active, durSec, el: it };
     });
+  }
+
+  // 判断当前 <video> 是否确实对应某一集（用时长匹配），防止“高亮已切、视频还是上一集”
+  function videoMatchesEpisode(ep) {
+    const v = getVideo();
+    if (!v || !ep || !ep.durSec || !isFinite(v.duration) || v.duration <= 0) return false;
+    return Math.abs(v.duration - ep.durSec) <= Math.max(3, ep.durSec * 0.01);
   }
 
   function activeEpisodeIndex() {
@@ -545,17 +571,24 @@
     const eps = readEpisodes();
     const target = eps.find((e) => e.index === index);
     if (!target) throw new Error('分集不存在: ' + index);
-    if (target.active) return; // 已经是当前集
+    // 已是当前集“且视频确实对应该集”才直接返回，否则必须真正切换
+    if (target.active && videoMatchesEpisode(target)) return;
     const nameEl = target.el.querySelector(SEL.episodeName) || target.el;
+    const beforeSrc = (getVideo() && getVideo().currentSrc) || '';
     nameEl.click();
-    // 等待该集变为 active 且视频就绪
+    // 等待该集变为 active，且 <video> 已切到该集（用时长匹配），避免切集竞态导致“点了新集却还在放旧集”
     await waitUntil(() => {
       const eps2 = readEpisodes();
       const t = eps2.find((e) => e.index === index);
       const v = getVideo();
-      return t && t.active && videoUsable(v);
-    }, { timeout: CFG.episodeSelectTimeout, label: 'episode active' });
-    await sleep(400);
+      if (!(t && t.active && videoUsable(v))) return false;
+      if (t.durSec && v && isFinite(v.duration) && v.duration > 0) {
+        return Math.abs(v.duration - t.durSec) <= Math.max(3, t.durSec * 0.01);
+      }
+      if (beforeSrc && v && v.currentSrc && v.currentSrc !== beforeSrc) return true;
+      return true;
+    }, { timeout: CFG.episodeSelectTimeout, label: 'episode active+video' });
+    await sleep(300);
   }
 
   // 等待当前视频播完；支持暂停、停止、卡顿检测
@@ -666,8 +699,21 @@
         setPhase(S.phase, 'WAITING_CONFIRMATION');
         await sleep(CFG.syncWaitMs);
         if (S.phase === PHASE.STOPPED || S.phase === PHASE.ERROR) break;
-        // 标记为本地完成（后续以目录页 aria 复核）
-        markEpisodeDoneLocal(firstUnfinished.index);
+        // 复核：以“该集平台展示进度到达 100%”为准再进入下一节。
+        // 若刚 ended/near-end 但平台同步稍慢，先轮询；仍不到 100 时，若视频确实整集播完则信任并记完成
+        // （稍后目录页会用 aria 复核），否则不记完成→本轮重新播放本集，避免把没看完的集误跳过。
+        const reached100 = await waitEpisodePercent(firstUnfinished.index, 100, Math.max(6000, CFG.syncWaitMs));
+        const playedThrough = (r === 'ended' || r === 'near-end');
+        if (reached100 || playedThrough) {
+          markEpisodeDoneLocal(firstUnfinished.index);
+          if (!reached100 && playedThrough) {
+            S.lastError = '该集已播完，平台进度同步稍慢，稍后目录页会复核为100%';
+            updatePanel();
+          }
+        } else {
+          S.lastError = '该集未确认完成，将重新播放本集';
+          updatePanel();
+        }
       } catch (e) {
         if (/AUTOPLAY_BLOCKED/.test(e.message)) {
           // 等待用户手势期间暂停循环
@@ -692,6 +738,18 @@
   function episodeEffectivelyDone(e) {
     if (localDone[currentCourseKeyPrefix() + '#' + e.index]) return true;
     return e.aria != null && e.aria >= 100;
+  }
+  // 轮询某分集的平台展示进度是否达到 target（如 100），用于“到 100% 再跳下一节”的复核
+  async function waitEpisodePercent(index, target, timeout) {
+    const t0 = now();
+    while (now() - t0 < (timeout || 0)) {
+      if ([PHASE.STOPPED, PHASE.ERROR, PHASE.IDLE].includes(S.phase)) break;
+      const e = readEpisodes().find((x) => x.index === index);
+      if (e && e.aria != null && e.aria >= target) return true;
+      await sleep(500);
+    }
+    const e = readEpisodes().find((x) => x.index === index);
+    return !!(e && e.aria != null && e.aria >= target);
   }
 
   /* --------------------------- 引擎主循环 --------------------------- */
@@ -1110,7 +1168,7 @@
     readEpisodes, handlePlayerCourse, handleStepError,
     isCatalogPage, isPlayerPage, projectMatches,
     engineLoop, boot, updatePanel, markEpisodeDoneLocal, localDone,
-    _internal: { getVideo, ensurePlaying, waitForEnded, selectEpisode, videoTimeInfo, enterCourse, goToCatalog, expandAllCollapses },
+    _internal: { getVideo, ensurePlaying, waitForEnded, selectEpisode, videoTimeInfo, enterCourse, goToCatalog, expandAllCollapses, videoMatchesEpisode, waitEpisodePercent, parseDurSec },
   };
 
   boot();
