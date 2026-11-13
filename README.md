@@ -9,7 +9,7 @@
 
 ## ⚡ 三秒装好（TL;DR）
 
-1. 浏览器先装好 **ScriptCat** 扩展；
+1. 浏览器先装好 **ScriptCat** 扩展（Chrome / Edge / Firefox 商店链接见 **2.0**，或官网 https://scriptcat.org）；
 2. 打开下面这个链接，ScriptCat 会弹出安装页 → 点 **安装**：
    👉 **https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js**
 3. 登录 https://estudy.enaea.edu.cn，进入「必修课」目录页 → **右下角出现 ENAEA 面板**即成功 → 点 **【开始自动学习】**。
@@ -38,12 +38,21 @@
 
 ### 2.0 前置：先装浏览器扩展 ScriptCat
 
-脚本必须运行在 **ScriptCat**（用户脚本管理器）里。浏览器支持 **Chrome / Edge / 其它 Chromium 内核浏览器**。
+脚本必须运行在 **ScriptCat**（脚本猫，用户脚本管理器）里。浏览器支持 **Chrome / Edge / Firefox / 其它 Chromium 内核浏览器**。
 
-1. 打开扩展商店安装 ScriptCat（官方开源项目，GitHub: `scriptscat/scriptcat`，官网 https://scriptcat.org）：
-   - Chrome 应用商店搜索 **ScriptCat** 安装；
-   - Edge：Edge 加载项里搜索 **ScriptCat** 安装。
-2. 安装后浏览器右上角会出现 ScriptCat 图标（没有的话点「扩展」拼图图标里固定它）。
+**ScriptCat 扩展下载链接（官方）：**
+
+| 浏览器 | 安装链接 |
+|---|---|
+| Chrome（正式版） | https://chromewebstore.google.com/detail/scriptcat/ndcooeababalnlpkfedmmbbbgkljhpjf |
+| Edge（正式版） | https://microsoftedge.microsoft.com/addons/detail/scriptcat/liilgpjgabokdklappibcjfablkpcekh |
+| Firefox（正式版） | https://addons.mozilla.org/zh-CN/firefox/addon/scriptcat/ |
+| 其它浏览器 / 手动安装 | 从 GitHub Releases 下载：https://github.com/scriptscat/scriptcat/releases |
+| 官网 / 脚本站 | https://scriptcat.org/ ｜ 文档：https://docs.scriptcat.org/ |
+
+安装步骤：
+1. 点上表对应浏览器的链接，进入商店页点 **「添加至浏览器 / 获取」** 安装 ScriptCat。
+2. 安装后浏览器右上角会出现 ScriptCat 图标（没有的话点「扩展」拼图图标把它固定）。
 3. 首次使用若被浏览器询问权限，按提示**允许**（需要「读取和更改您在所有网站上的数据」，这是用户脚本正常工作的前提）。
 
 > 若你已在用 Tampermonkey/Violentmonkey 等其它管理器：本脚本按标准 UserScript 编写，理论上也可导入，**但仅在 ScriptCat 上做过完整验证**，建议优先用 ScriptCat。
