@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         中国教育干部网络学院 自动连续学习（新版 estudy）
 // @namespace    https://estudy.enaea.edu.cn/
-// @version      1.0.0
+// @version      1.0.1
 // @description  新版 estudy.enaea.edu.cn 自动顺序学习：保持 1.0x 正常播放，播放完自动切换下一集/下一课程/下一小节/下一大章；跨页保存进度；右下角控制面板。仅在本学习项目内生效，不改写服务器记录、不倍速、不拖进度条。
 // @author       enaea-auto-learning
 // @match        https://estudy.enaea.edu.cn/web/*
@@ -357,10 +357,33 @@
   }
 
   /* --------------------------- 播放器辅助 --------------------------- */
+  // 收集主文档 + 同源 iframe 内的所有 video（部分课程播放器可能嵌在同源 iframe 中）
+  function collectVideos() {
+    let out = qa('video');
+    const frames = qa('iframe');
+    for (const f of frames) {
+      try { const d = f.contentDocument; if (d) out = out.concat(Array.prototype.slice.call(d.querySelectorAll('video'))); } catch (e) {}
+    }
+    return out;
+  }
+  function videoUsable(v) { return !!v && (v.readyState > 0 || (isFinite(v.duration) && v.duration > 0) || !!v.currentSrc); }
   function getVideo() {
-    const vids = qa('video').filter((v) => v.readyState > 0 || (v.duration && v.duration > 0) || v.currentSrc);
-    if (vids.length) return vids[0];
-    return q('video');
+    const all = collectVideos();
+    const vids = all.filter(videoUsable);
+    return vids[0] || all[0] || null;
+  }
+  // 等待 video 真正出现并可用（应对 xgplayer 切集/进课时对 <video> 的销毁重建）
+  async function waitForVideo(timeout) {
+    const t0 = now();
+    let last = null;
+    while (now() - t0 < (timeout || CFG.playerReadyTimeout)) {
+      if ([PHASE.STOPPED, PHASE.ERROR, PHASE.IDLE].includes(S.phase)) return null;
+      const v = getVideo();
+      last = v;
+      if (videoUsable(v)) return v;
+      await sleep(250);
+    }
+    return last || getVideo();
   }
 
   async function waitForPlayerReady() {
@@ -401,23 +424,57 @@
     }
   }
 
-  let gestureGateArmed = false;
+  function clearLastErrorIfBenign() {
+    if (!gestureGateArmed && S._mutedNote) { S.lastError = S._mutedNote; updatePanel(); }
+  }
   async function ensurePlaying() {
     // 暂停/停止/出错状态下绝不主动播放
     if (S.phase === PHASE.PAUSED || S.phase === PHASE.STOPPED || S.phase === PHASE.ERROR || S.phase === PHASE.IDLE) return;
-    const v = getVideo();
-    if (!v) throw new Error('无 video 元素');
+    // 关键：视频可能刚开始/切集时被销毁重建，等待它真正出现，而不是一发现没有就报错退出
+    const v = await waitForVideo(CFG.playerReadyTimeout);
+    if (!v) throw new Error('无 video 元素（等待超时）');
     await ensurePlaybackRate();
     if (v.paused) {
+      // 若之前已判定需要静音自动播放，则保持静音，避免“取消静音”再次触发浏览器拦截
+      if (S._mutedAutoplay) { try { v.muted = true; } catch (_) {} }
       try {
         await v.play();
-        S.errorStreak = 0;
       } catch (e) {
-        // 自动播放被拦截：提示用户点击页面一次
-        armGestureGate();
-        throw new Error('AUTOPLAY_BLOCKED');
+        // 严格自动播放策略：静音播放取得播放权（不改倍速、不拖动）；保持静音以保证连续播放
+        try {
+          v.muted = true;
+          S._mutedAutoplay = true;
+          await v.play();
+          S._mutedNote = '提示：浏览器限制自动播放，已静音自动播放（学时仍正常累计）；点击页面任意处可恢复声音。';
+          S.lastError = S._mutedNote;
+          installUnmuteOnGesture();
+          updatePanel();
+        } catch (e2) {
+          // 静音仍被拦截：提示用户点击页面一次（保留兜底）
+          armGestureGate();
+          throw new Error('AUTOPLAY_BLOCKED');
+        }
       }
+      S.errorStreak = 0;
     }
+    clearLastErrorIfBenign();
+  }
+
+  let gestureGateArmed = false;
+  let unmuteArmed = false;
+  function installUnmuteOnGesture() {
+    if (unmuteArmed) return; unmuteArmed = true;
+    const h = async () => {
+      document.removeEventListener('click', h, true);
+      document.removeEventListener('keydown', h, true);
+      unmuteArmed = false;
+      const v = getVideo();
+      try { if (v) v.muted = false; } catch (e) {}
+      S._mutedAutoplay = false; S._mutedNote = '';
+      if (S.lastError && /静音/.test(S.lastError)) { S.lastError = ''; updatePanel(); }
+    };
+    document.addEventListener('click', h, true);
+    document.addEventListener('keydown', h, true);
   }
 
   function armGestureGate() {
@@ -430,8 +487,9 @@
       document.removeEventListener('click', handler, true);
       document.removeEventListener('keydown', handler, true);
       gestureGateArmed = false;
+      S._mutedAutoplay = false; S._mutedNote = '';
       const v = getVideo();
-      try { if (v) await v.play(); } catch (e) {}
+      try { if (v) { v.muted = false; await v.play(); } } catch (e) {}
       S.lastError = '';
       updatePanel();
     };
@@ -457,7 +515,7 @@
       const eps2 = readEpisodes();
       const t = eps2.find((e) => e.index === index);
       const v = getVideo();
-      return t && t.active && v && (v.duration > 0);
+      return t && t.active && videoUsable(v);
     }, { timeout: CFG.episodeSelectTimeout, label: 'episode active' });
     await sleep(400);
   }
@@ -492,7 +550,7 @@
           if (S.phase === PHASE.PAUSED) { lastChange = now(); lastCT = v.currentTime; return; }
           // 意外暂停（非用户暂停）尝试恢复
           if (v.paused) {
-            try { await v.play(); } catch (e) { if (!resumedForGesture) { resumedForGesture = true; armGestureGate(); } }
+            try { if (S._mutedAutoplay) v.muted = true; await v.play(); } catch (e) { if (!resumedForGesture) { resumedForGesture = true; armGestureGate(); } }
           }
           // 卡顿检测
           if (Math.abs(v.currentTime - lastCT) > 0.3) { lastCT = v.currentTime; lastChange = now(); }
