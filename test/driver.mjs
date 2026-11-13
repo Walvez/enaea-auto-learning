@@ -237,6 +237,28 @@ async function main() {
     rec('S9-completes-after-credit', fin === 'COMPLETED' && st.eps.every((p) => p >= 100), { fin, eps: st.eps });
   } catch (e) { rec('S9-EXCEPTION', false, String(e)); }
 
+  // ---------- Scenario 10: 已学完分集显示“完成”文字（无进度条）时，能识别完成并跳到下一集 ----------
+  try {
+    const url = BASE + '?reset=1&seed=finished&' + PROJ + '&_t=' + Date.now();
+    await page.goto(url, { timeout: 20000 });
+    await ev(page, "localStorage.removeItem('enaea_state'); localStorage.removeItem('enaea_lock');");
+    await inject(page);
+    await boot(page);
+    await poll(page, "!!(window.__ENAEA_AUTO__ && window.__ENAEA_AUTO__.S) && !!document.querySelector('.collapseList_test')", (v) => v, 10000, 'finished-ready');
+    // 进入该课程播放页：第一集真实站渲染为“完成”文字且无进度条，脚本须判为已完成(aria=100)
+    await ev(page, "window.FIXTURE.renderPlayer('理论教育§政治理论学习§完成文案测试（两集）')");
+    await page.waitForTimeout(400);
+    const det = await ev(page, "(()=>{const eps=window.__ENAEA_AUTO__.readEpisodes();return {n:eps.length, a0:eps[0]&&eps[0].aria, f0:eps[0]&&eps[0].finished, a1:eps[1]&&eps[1].aria, t0:eps[0]&&eps[0].title};})()");
+    rec('S10-finished-text-detected', det.n === 2 && det.f0 === true && det.a0 === 100 && det.a1 === 0, det);
+    // 回到目录，整轮自动学习：应跳过已完成的第一集，只播第二集并完成
+    await ev(page, 'window.FIXTURE.renderCatalog()');
+    await ev(page, 'window.FIXTURE.activationLog = []');
+    await ev(page, 'window.__ENAEA_AUTO__.Controls.start()');
+    const fin = await poll(page, 'window.__ENAEA_AUTO__.S.phase', (v) => v === 'COMPLETED' || v === 'ERROR', 120000, 's10-complete');
+    const st = await ev(page, `(()=>{const d=window.FIXTURE.data;const co=d.chapters[0].sections[0].courses[0];return {phase:window.__ENAEA_AUTO__.S.phase, eps:co.episodes.map(e=>e.progress), log:(window.FIXTURE.activationLog||[]).slice(0,6), err:window.__ENAEA_AUTO__.S.lastError};})()`);
+    rec('S10-skip-finished-and-complete', fin === 'COMPLETED' && st.eps.every((p) => p >= 100) && st.log[0] === 1, st);
+  } catch (e) { rec('S10-EXCEPTION', false, String(e)); }
+
   await task.finish({ keep: [] }).catch(() => {});
   const passed = results.filter((r) => r.ok).length;
   console.log('\n===== SUMMARY: ' + passed + '/' + results.length + ' passed =====');

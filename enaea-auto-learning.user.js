@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         中国教育干部网络学院 自动连续学习（新版 estudy）
 // @namespace    https://estudy.enaea.edu.cn/
-// @version      1.0.6
+// @version      1.0.7
 // @updateURL    https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @downloadURL  https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @description  新版 estudy.enaea.edu.cn 自动顺序学习：保持 1.0x 正常播放，播放完自动切换下一集/下一课程/下一小节/下一大章；跨页保存进度；右下角控制面板。仅在本学习项目内生效，不改写服务器记录、不倍速、不拖进度条。
@@ -470,15 +470,23 @@
       // 二者可能其中一个暂未刷新（例如滚动/懒加载时 aria 仍为 0），取 max 保证“取得到”平台真实分集进度。
       let barVal = null, rateVal = null;
       if (bar) { const v = parseFloat(bar.getAttribute('aria-valuenow')); if (!isNaN(v)) barVal = v; }
-      { const rs = it.querySelector(SEL.rateSpan); if (rs) rateVal = parsePct(rs.textContent); }
+      const rsEl = it.querySelector(SEL.rateSpan);
+      const rateText = rsEl ? (rsEl.textContent || '').replace(/\s+/g, '') : '';
+      if (rsEl) rateVal = parsePct(rsEl.textContent);
+      // 已学完的分集不再显示百分比，而是显示“完成/已学完”文字（通常还带一个勾选图标），
+      // 且此时进度条(role=progressbar)会被移除 → 旧逻辑得到 aria=null，永远“检测不到完成”，
+      // 反复重播已完成的集、并卡在“等待平台确认”。这里把“完成”判定为 100%。
+      const finishedText = /完成|已学完|学完|已看完/.test(rateText)
+        || (barVal == null && rateVal == null && /完成|已学完/.test(it.textContent || ''));
       let aria = null;
-      if (barVal != null && rateVal != null) aria = Math.max(barVal, rateVal);
+      if (finishedText) aria = 100;
+      else if (barVal != null && rateVal != null) aria = Math.max(barVal, rateVal);
       else if (barVal != null) aria = barVal;
       else if (rateVal != null) aria = rateVal;
       const active = it.getAttribute('data-checked') === 'true';
       const infoEl = it.querySelector('[class*="item-info_"]');
       const durSec = infoEl ? parseDurSec(infoEl.textContent) : null;
-      return { index: i, title: (nameEl.textContent || '').replace(/\s+/g, ' ').trim(), aria, active, durSec, el: it };
+      return { index: i, title: (nameEl.textContent || '').replace(/\s+/g, ' ').trim(), aria, active, durSec, finished: finishedText || (aria != null && aria >= 100), el: it };
     });
   }
 
@@ -777,6 +785,7 @@
   // 让 readEpisodes 的 aria 也受本地完成影响：这里采用在 handle 里过滤时叠加 localDone
   function episodeEffectivelyDone(e) {
     if (localDone[currentCourseKeyPrefix() + '#' + e.index]) return true;
+    if (e.finished) return true;
     return e.aria != null && e.aria >= 100;
   }
   // 轮询某分集的平台展示进度是否达到 target（如 100），用于“到 100% 再跳下一节”的复核
@@ -1105,7 +1114,18 @@
     panelEls.chapter.textContent = c.chapter || '-';
     panelEls.section.textContent = c.section || '-';
     panelEls.course.textContent = c.title || '-';
-    panelEls.episode.textContent = S.currentEpisode ? ('第' + (S.currentEpisode.index + 1) + '集 · ' + (S.currentEpisode.title || '')) : '-';
+    // 分集信息以「右侧目录中当前高亮(data-checked=true)的分集」为准（切集后它最准确），
+    // 兜底才用引擎记录的 S.currentEpisode，避免出现“面板显示第1集、实际在放第2集”的错位。
+    let epsNow = [];
+    try { epsNow = readEpisodes(); } catch (e) {}
+    const activeEp = epsNow.find((e) => e.active) || null;
+    const idxEp = S.currentEpisode ? epsNow.find((e) => e.index === S.currentEpisode.index) : null;
+    const curEp = activeEp || idxEp || null;
+    if (curEp) {
+      panelEls.episode.textContent = '第' + (curEp.index + 1) + '集 · ' + (curEp.title || '');
+    } else {
+      panelEls.episode.textContent = S.currentEpisode ? ('第' + (S.currentEpisode.index + 1) + '集 · ' + (S.currentEpisode.title || '')) : '-';
+    }
     const t = videoTimeInfo();
     if (t.dur > 0) {
       const pct = Math.min(100, (t.cur / t.dur) * 100);
@@ -1114,14 +1134,10 @@
     } else { panelEls.vprog.textContent = '-'; panelEls.vbar.style.width = '0'; }
     // 平台分集进度：当前正在播放/最近一集的平台展示进度（右侧分集百分比，用于判断是否该跳集）
     let epPctTxt = '-';
-    try {
-      const epsNow = readEpisodes();
-      if (epsNow.length) {
-        const idx = S.currentEpisode ? S.currentEpisode.index : null;
-        const curEp = (idx != null && epsNow.find((e) => e.index === idx)) || epsNow.find((e) => e.active) || null;
-        if (curEp && curEp.aria != null) epPctTxt = Math.round(curEp.aria) + '%';
-      }
-    } catch (e) {}
+    if (curEp) {
+      if (curEp.finished || (curEp.aria != null && curEp.aria >= 100)) epPctTxt = '100%（完成）';
+      else if (curEp.aria != null) epPctTxt = Math.round(curEp.aria) + '%';
+    }
     panelEls.eprog.textContent = epPctTxt;
     panelEls.cprog.textContent = (c.progress != null ? c.progress + '%' : '-') + (c.key && S.manualKeys[c.key] ? ' (人工)' : '');
     panelEls.donecount.textContent = (S.completedCount || 0) + ' / ' + (S.totalCourses || '?');

@@ -23,6 +23,8 @@ PASS S8-single-instance-sameworld :: {"c1":1,"c2":1}
 PASS S8-single-instance-crossworld :: {"hosts":0,"booted":true}
 PASS S9-not-jump-before-platform-100 :: {"phase":"RUNNING","ep0":17,"ep1":0,"log":[0],"err":"本集平台分集进度仅 17%，未到 100%，继续播放本集（不跳到下一节）"}
 PASS S9-completes-after-credit :: {"fin":"COMPLETED","eps":[100,100]}
+PASS S10-finished-text-detected :: {"n":2,"a0":100,"f0":true,"a1":0,"t0":"第一集 完成文案"}
+PASS S10-skip-finished-and-complete :: {"phase":"COMPLETED","eps":[100,100],"log":[1],"err":""}
 
-===== SUMMARY: 25/25 passed =====
+===== SUMMARY: 27/27 passed =====
 

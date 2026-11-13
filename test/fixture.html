@@ -70,8 +70,23 @@
 
   function load() {
     try { const s = localStorage.getItem(DATA_KEY); if (s) return JSON.parse(s); } catch (e) {}
-    try { const p = new URLSearchParams(location.search); if (p.get('seed') === 'skip') return skipData(); } catch (e) {}
+    try { const p = new URLSearchParams(location.search); if (p.get('seed') === 'skip') return skipData(); if (p.get('seed') === 'finished') return finishedData(); } catch (e) {}
     return defaultData();
+  }
+  // 验证“已学完的分集显示为「完成」文字、无进度条”时脚本仍能识别完成并跳到下一集
+  function finishedData() {
+    return {
+      chapters: [
+        { title: '理论教育', sections: [
+          { title: '政治理论学习', courses: [
+            { title: '完成文案测试（两集）', finishedAsText: true, episodes: [
+              { title: '第一集 完成文案', file: 'e1.webm', progress: 100 },
+              { title: '第二集 完成文案', file: 'e2.webm', progress: 0 },
+            ]},
+          ]},
+        ]},
+      ],
+    };
   }
   // 用于验证“进入课程时平台把后面某集设为当前集”时，脚本是否仍从第一集(最小未完成)开始，不跳集
   function skipData() {
@@ -178,10 +193,13 @@
       it.dataset.checked = 'false';
       it.dataset.index = i;
       const p = ep.progress || 0;
+      const finished = course.finishedAsText && p >= 100;
       it.innerHTML =
         '<div class="item-title_test"><span class="name-span_test">' + escapeHtml(ep.title) + '</span>' +
-        '<span class="rate-span_test">' + p + '%</span>' +
-        '<div role="progressbar" aria-valuenow="' + p + '" aria-valuemin="0" aria-valuemax="100" style="display:none"></div></div>' +
+        (finished
+          ? '<span class="rate-span_test">完成</span></div>'
+          : '<span class="rate-span_test">' + p + '%</span>' +
+            '<div role="progressbar" aria-valuenow="' + p + '" aria-valuemin="0" aria-valuemax="100" style="display:none"></div></div>') +
         '<div class="item-info_test">测试片</div>';
       list.appendChild(it);
     });
@@ -227,8 +245,14 @@
       // update item aria
       const item = app.querySelector('.item-wrap_test[data-index="' + index + '"]');
       if (item) {
-        const bar = item.querySelector('[role=progressbar]'); if (bar) bar.setAttribute('aria-valuenow', '100');
-        const rs = item.querySelector('.rate-span_test'); if (rs) rs.textContent = '100%';
+        if (course.finishedAsText) {
+          // 真实站：学完的分集不再显示百分比，改成“完成”并移除进度条
+          const bar = item.querySelector('[role=progressbar]'); if (bar) bar.remove();
+          const rs = item.querySelector('.rate-span_test'); if (rs) rs.textContent = '完成';
+        } else {
+          const bar = item.querySelector('[role=progressbar]'); if (bar) bar.setAttribute('aria-valuenow', '100');
+          const rs = item.querySelector('.rate-span_test'); if (rs) rs.textContent = '100%';
+        }
       }
       if (typeof v._onEndedNote === 'function') v._onEndedNote();
     };
