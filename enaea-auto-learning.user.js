@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         中国教育干部网络学院 自动连续学习（新版 estudy）
 // @namespace    https://estudy.enaea.edu.cn/
-// @version      1.0.3
+// @version      1.0.4
 // @updateURL    https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @downloadURL  https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @description  新版 estudy.enaea.edu.cn 自动顺序学习：保持 1.0x 正常播放，播放完自动切换下一集/下一课程/下一小节/下一大章；跨页保存进度；右下角控制面板。仅在本学习项目内生效，不改写服务器记录、不倍速、不拖进度条。
@@ -98,7 +98,8 @@
     lastOpenedKey: null,
     attemptByKey: {},            // key -> 进入次数
     doneKeys: {},                // key -> true（本地认为完成）
-    manualKeys: {},              // 需要人工处理（VR/测验/卡住）
+    manualKeys: {},              // 需要人工处理（VR/测验/卡住）——持久化
+    manualThisSession: {},       // 本次运行内已放弃的课程（不持久化，避免死循环）
     manualNotes: {},             // key -> 原因
     completedCount: 0,
     totalCourses: 0,
@@ -110,7 +111,7 @@
   };
 
   let saveTimer = null;
-  const STATE_VERSION = 2;
+  const STATE_VERSION = 3;
   function save() {
     if (saveTimer) return;
     saveTimer = setTimeout(async () => {
@@ -151,6 +152,9 @@
         S.current = null; S.lastOpenedKey = null; S.lastError = '';
         S.phase = PHASE.IDLE;
       }
+      // 进入次数(attemptByKey)与“本次放弃”都按会话重置，避免旧会话的计数/误标跨会话污染选课
+      S.attemptByKey = {};
+      S.manualThisSession = {};
       // 运行态来自上次运行，若为运行/暂停则保持；其它状态不自动恢复
       if (![PHASE.RUNNING, PHASE.PAUSED].includes(S.phase)) S.phase = PHASE.IDLE;
       if (S.phase === PHASE.PAUSED) S.phase = PHASE.IDLE; // 关闭前是暂停 => 重新打开需手动继续
@@ -347,8 +351,12 @@
     S.totalCourses = all.length;
     S.completedCount = all.filter((c) => c.progress >= 100).length;
     for (const c of all) {
-      if (S.manualKeys[c.key]) continue;
       if (c.progress >= 100) continue;
+      // 本次运行已判定放弃（重试到上限/确认非视频）→ 跳过，避免本会话死循环
+      if (S.manualThisSession[c.key]) continue;
+      // 历史人工标记：只有当这门课“完全没有进度”时才跳过（多半是 VR/测验等真非视频项）；
+      // 只要有进度(0<progress<100) 就说明它是能播的视频课，必须重试，绝不能被旧的人工标记跳过
+      if (S.manualKeys[c.key] && !(c.progress > 0)) continue;
       return c;
     }
     return null;
@@ -796,18 +804,14 @@
     const next = pickNextCourse(chapters);
     updatePanel();
     if (!next) {
-      // 没有未完成课程：区分是否有“人工处理”项
+      // 没有可继续的未完成课程：完成（并说明剩余需人工项）
       const all = flatten(chapters);
-      const manualCount = all.filter((c) => S.manualKeys[c.key]).length;
-      const unfinished = all.filter((c) => c.progress < 100 && !S.manualKeys[c.key]).length;
-      if (unfinished === 0) {
-        setPhase(PHASE.COMPLETED, 'COMPLETED');
-        S.lastError = manualCount ? ('已完成全部可自动课程；' + manualCount + ' 门需人工处理（见 TEST/面板）。') : '';
-        updatePanel();
-        return;
-      }
-      setPhase(PHASE.ERROR, 'ERROR');
-      S.lastError = '未找到可继续的未完成课程（可能全部卡住或需人工处理）。';
+      const remaining = all.filter((c) => c.progress < 100);
+      const manualCount = remaining.filter((c) => S.manualKeys[c.key] || S.manualThisSession[c.key]).length;
+      setPhase(PHASE.COMPLETED, 'COMPLETED');
+      S.lastError = remaining.length
+        ? ('剩余 ' + remaining.length + ' 门未能自动完成（其中 ' + manualCount + ' 门标记人工，多为 VR/测验/问卷或多次失败），请查看面板。')
+        : '';
       updatePanel();
       return;
     }
@@ -821,6 +825,7 @@
       // 记为需要人工处理（VR/测验/异常）
       if (S.current) {
         S.manualKeys[S.current.key] = true;
+        S.manualThisSession[S.current.key] = true;
         S.manualNotes[S.current.key] = '进入后未检测到视频播放器（可能为 VR/测验/问卷或加载失败）';
       }
       save();
@@ -841,6 +846,7 @@
       const key = S.current.key;
       if ((S.attemptByKey[key] || 0) >= CFG.courseAttemptCap) {
         S.manualKeys[key] = true;
+        S.manualThisSession[key] = true;
         S.manualNotes[key] = '多次尝试未通过（' + S.lastError + '）';
         S.lastError = '课程多次尝试失败，已标记人工：' + S.current.title;
         save();
