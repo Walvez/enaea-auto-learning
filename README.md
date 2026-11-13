@@ -3,6 +3,10 @@
 一个 **ScriptCat（`.user.js`）用户脚本**：在 https://estudy.enaea.edu.cn 新版平台上，以 **1.0x 正常倍速**自动、连续地完成当前项目内**所有未完成的视频课程**，自动接续「下一集 / 下一课程 / 下一小节 / 下一大章」，直到全部指定视频课程完成即停止。
 不加速、不拖动进度（不 seek）、不伪造学时、不调用任何写接口、不上传/保存 Cookie 或 Token。
 
+> **一键安装（推荐）**：已装 ScriptCat 时，直接打开
+> https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
+> 即可弹出安装界面。仓库主页：https://github.com/Walvez/enaea-auto-learning
+
 > 核心原则：**平台"官方显示"的进度才算完成**（目录/分集进度条 `aria-valuenow` 与 "N%" 文案）。脚本不会把 `currentTime≈duration` 当成平台完成。
 
 ---
