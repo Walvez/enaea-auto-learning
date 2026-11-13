@@ -1,3 +1,4 @@
+[ego-browser:notice] Ego Lite update is available (current 0.6.2.9). Finish the current browser task, then ask the user before running `ego-browser upgrade`; re-read the ego-browser Skill afterward.
 PASS S1-idle-init :: {"idle":"IDLE"}
 PASS S1-playback-rate-1x :: {"r":1,"d":6.008}
 PASS S1-phase-completed :: {"phase":"COMPLETED","err":""}
@@ -8,7 +9,7 @@ PASS S1-no-restart-after-complete :: {"phase":"COMPLETED","playing":false}
 PASS S2-phase-stopped :: {"phase":"STOPPED","playing":false}
 PASS S2-video-paused :: {"phase":"STOPPED","playing":false}
 PASS S2-no-further-progress :: {"before":{"sum":0,"n":6,"done":0},"after":{"sum":0,"n":6,"done":0}}
-PASS S2-no-auto-resume :: {"st2":"STOPPED"}
+FAIL S2-no-auto-resume :: {"st2":"IDLE"}
 PASS S3-paused-state :: {"phase":"PAUSED","paused":true}
 PASS S3-resumed-running :: {"phase":"RUNNING","paused":false}
 PASS S4-auto-resume-running :: {"phaseAfterReload":"RUNNING","mid":{"sum":100,"n":6,"done":1}}
@@ -16,5 +17,14 @@ PASS S4-completes-after-reload :: {"phase":"COMPLETED","done":6,"n":6}
 PASS S5-nonvideo-marked-manual :: {"manualCount":1,"manualKey0":"理论教育§政治理论学习§课程A（两集）","phase":"RUNNING"}
 PASS S5-rest-completes :: {"fin":"COMPLETED"}
 
-===== SUMMARY: 17/17 passed =====
+===== SUMMARY: 16/17 passed =====
+FAILED: [
+ {
+  "name": "S2-no-auto-resume",
+  "ok": false,
+  "detail": {
+   "st2": "IDLE"
+  }
+ }
+]
 

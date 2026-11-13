@@ -60,7 +60,9 @@ const sumExpr = `(()=>{const d=window.FIXTURE.data;let s=0,n=0,done=0;for(const 
 
 async function main() {
   const task = await taskSpace('enaea-fixture-test');
-  const page = task.page('p1');
+  let page;
+  try { page = task.page('p1'); } catch (e) { page = await task.newPage('p1'); }
+  if (!page) page = await task.newPage('p1');
 
   // ---------- Scenario 1: full run: episode->next, section->next, chapter->next, 1.0x, COMPLETED ----------
   try {

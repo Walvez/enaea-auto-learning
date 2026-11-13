@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         中国教育干部网络学院 自动连续学习（新版 estudy）
 // @namespace    https://estudy.enaea.edu.cn/
-// @version      1.0.1
+// @version      1.0.2
 // @updateURL    https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @downloadURL  https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @description  新版 estudy.enaea.edu.cn 自动顺序学习：保持 1.0x 正常播放，播放完自动切换下一集/下一课程/下一小节/下一大章；跨页保存进度；右下角控制面板。仅在本学习项目内生效，不改写服务器记录、不倍速、不拖进度条。
@@ -110,12 +110,14 @@
   };
 
   let saveTimer = null;
+  const STATE_VERSION = 2;
   function save() {
     if (saveTimer) return;
     saveTimer = setTimeout(async () => {
       saveTimer = null;
       S.lastTick = now();
       await sset('state', {
+        version: STATE_VERSION,
         phase: S.phase, sub: S.sub, current: S.current,
         lastOpenedKey: S.lastOpenedKey, attemptByKey: S.attemptByKey,
         doneKeys: S.doneKeys, manualKeys: S.manualKeys, manualNotes: S.manualNotes,
@@ -128,6 +130,7 @@
   async function loadState() {
     const st = await sget('state');
     if (st && typeof st === 'object') {
+      const ver = st.version || 1;
       S.phase = st.phase || PHASE.IDLE;
       S.sub = st.sub || 'IDLE';
       S.current = st.current || null;
@@ -140,6 +143,14 @@
       S.totalCourses = st.totalCourses || 0;
       S.lastError = st.lastError || '';
       S.catalogUrl = st.catalogUrl || CFG.catalogUrl;
+      // 升级到新版状态：旧版目录扫描缺陷可能造成 totalCourses 偏小、课程被误标“人工”、
+      // current 指向错误课程。升级时清空这些动态态，保证按正确目录顺序重新选择。
+      if (ver < STATE_VERSION) {
+        S.attemptByKey = {}; S.doneKeys = {}; S.manualKeys = {}; S.manualNotes = {};
+        S.completedCount = 0; S.totalCourses = 0;
+        S.current = null; S.lastOpenedKey = null; S.lastError = '';
+        S.phase = PHASE.IDLE;
+      }
       // 运行态来自上次运行，若为运行/暂停则保持；其它状态不自动恢复
       if (![PHASE.RUNNING, PHASE.PAUSED].includes(S.phase)) S.phase = PHASE.IDLE;
       if (S.phase === PHASE.PAUSED) S.phase = PHASE.IDLE; // 关闭前是暂停 => 重新打开需手动继续
@@ -231,21 +242,46 @@
 
   /* --------------------------- 目录扫描 --------------------------- */
   async function expandAllCollapses() {
-    // 逐层展开：只点“未展开”的头部；大章展开后其下小节才出现，故多轮。
-    for (let pass = 0; pass < 8; pass++) {
-      const items = qa(SEL.collapseItem);
-      let clicked = 0;
-      for (const it of items) {
-        const h = it.querySelector(':scope > ' + SEL.collapseHeader);
-        if (!h) continue;
-        if (!itemActive(it)) {
-          try { h.click(); } catch (e) {}
-          clicked++;
-        }
+    // 1) 先确保各大章展开（大章内应出现小节 grt-collapse-item）
+    for (let i = 0; i < 6; i++) {
+      const tops = qa(SEL.collapseItem).filter((it) => collapseDepth(it) === 0);
+      let acted = false;
+      for (const top of tops) {
+        if (top.querySelector(SEL.collapseItem)) continue; // 已有小节 => 已展开
+        const h = top.querySelector(':scope > ' + SEL.collapseHeader);
+        if (h) { try { h.click(); } catch (e) {} acted = true; await sleep(400); }
       }
-      await sleep(500);
-      if (clicked === 0) break;
+      if (!acted) break;
     }
+    // 2) 逐个展开“小节”。关键：React 重渲染会让旧的 DOM 引用失效，
+    //    必须在每次点击前重新查询 DOM，且只点“当前完全没有课程内容”的小节，
+    //    绝不点击已展开的小节（否则会把它重新收起）。旧实现一次性持有整批
+    //    节点逐一点击，重渲染后只有 1 个小节能真正展开 → 早期小节课程缺失 →
+    //    目录扫描漏课 → 选课“乱跳”。
+    const openByTitle = (t) =>
+      qa(SEL.collapseItem).some((it) => collapseDepth(it) === 1 && headerTitle(it) === t && it.querySelector(SEL.sectionBox));
+    const tried = {};
+    for (let iter = 0; iter < 160; iter++) {
+      const secs = qa(SEL.collapseItem).filter((it) => collapseDepth(it) === 1);
+      let picked = null, pickedTitle = '';
+      for (const s of secs) {
+        if (s.querySelector(SEL.sectionBox)) continue;      // 已展开
+        const t = headerTitle(s);
+        if ((tried[t] || 0) >= 4) continue;                 // 反复打不开则跳过，避免死循环
+        picked = s; pickedTitle = t; break;
+      }
+      if (!picked) break; // 所有小节都已有课程内容（或达到重试上限）
+      tried[pickedTitle] = (tried[pickedTitle] || 0) + 1;
+      const h = picked.querySelector(':scope > ' + SEL.collapseHeader);
+      if (!h) break;
+      try { h.click(); } catch (e) {}
+      const t0 = now();
+      while (now() - t0 < 2500) {
+        await sleep(200);
+        if (openByTitle(pickedTitle)) break;
+      }
+    }
+    await waitCourseListStable();
   }
 
   async function waitCourseListStable() {
@@ -803,6 +839,10 @@
       if (!isCatalogPage() && !isPlayerPage()) {
         try { location.href = S.catalogUrl; return; } catch (e) {}
       }
+      // 从播放页启动：先回目录做权威重扫，再按目录顺序重新选择，避免沿用上次错误课程
+      if (isPlayerPage()) {
+        try { await goToCatalog(); } catch (e) {}
+      }
       engineLoop();
     },
     async pause() {
@@ -1041,6 +1081,7 @@
     // 自动恢复：若上次为运行态
     if (S.phase === PHASE.RUNNING) {
       log('检测到上次运行态，自动恢复');
+      if (isPlayerPage()) { try { await goToCatalog(); } catch (e) {} }
       engineLoop();
     } else {
       S.phase = S.phase === PHASE.COMPLETED ? PHASE.COMPLETED : PHASE.IDLE;
