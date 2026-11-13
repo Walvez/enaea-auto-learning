@@ -216,6 +216,12 @@
     if (!v) return;
     v.onended = () => {
       const ep = eps[index];
+      // creditOnEnded=false 用于模拟“手动把进度拖到结尾 / 浏览器续播到结尾，但平台分集进度并未真正增长”：
+      // 视频 ended 了，但该集平台进度保持不变（不置 100%），验证脚本不因视频结束就跳下一节。
+      if (window.FIXTURE && window.FIXTURE.creditOnEnded === false) {
+        if (typeof v._onEndedNote === 'function') v._onEndedNote();
+        return;
+      }
       ep.progress = 100;
       save();
       // update item aria
@@ -257,6 +263,7 @@
   window.FIXTURE = {
     get data() { return data; },
     activationLog: [],
+    creditOnEnded: true,
     reset() { data = defaultData(); save(); renderCatalog(); },
     renderCatalog, renderPlayer, save,
     setAllProgress(p) {

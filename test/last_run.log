@@ -1,4 +1,3 @@
-[ego-browser:notice] Ego Lite update is available (current 0.6.2.9). Finish the current browser task, then ask the user before running `ego-browser upgrade`; re-read the ego-browser Skill afterward.
 PASS S1-idle-init :: {"idle":"IDLE"}
 PASS S1-playback-rate-1x :: {"r":1,"d":null}
 PASS S1-phase-completed :: {"phase":"COMPLETED","err":""}
@@ -22,6 +21,8 @@ PASS S6-completed :: {"phase":"COMPLETED","err":""}
 PASS S7-align-to-platform-progress :: {"beforeFrac":0.8999999999999999,"aria":10,"afterFrac":0.1,"dur":6.008}
 PASS S8-single-instance-sameworld :: {"c1":1,"c2":1}
 PASS S8-single-instance-crossworld :: {"hosts":0,"booted":true}
+PASS S9-not-jump-before-platform-100 :: {"phase":"RUNNING","ep0":17,"ep1":0,"log":[0],"err":"本集平台分集进度仅 17%，未到 100%，继续播放本集（不跳到下一节）"}
+PASS S9-completes-after-credit :: {"fin":"COMPLETED","eps":[100,100]}
 
-===== SUMMARY: 23/23 passed =====
+===== SUMMARY: 25/25 passed =====
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         中国教育干部网络学院 自动连续学习（新版 estudy）
 // @namespace    https://estudy.enaea.edu.cn/
-// @version      1.0.5
+// @version      1.0.6
 // @updateURL    https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @downloadURL  https://raw.githubusercontent.com/Walvez/enaea-auto-learning/main/enaea-auto-learning.user.js
 // @description  新版 estudy.enaea.edu.cn 自动顺序学习：保持 1.0x 正常播放，播放完自动切换下一集/下一课程/下一小节/下一大章；跨页保存进度；右下角控制面板。仅在本学习项目内生效，不改写服务器记录、不倍速、不拖进度条。
@@ -40,6 +40,7 @@
 
     playbackRate: 1.0,
     syncWaitMs: 4500,          // 视频结束后等待平台同步的毫秒数
+    platformSyncTimeout: 60000, // 等待“平台分集进度到达100%”的最长时间（跳集判定以此为准）
     episodeSelectTimeout: 15000,
     playerReadyTimeout: 30000,
     courseAttemptCap: 4,       // 同一课程最多进入次数（无进展则标记人工）
@@ -465,9 +466,15 @@
     return items.map((it, i) => {
       const nameEl = it.querySelector(SEL.episodeName) || it;
       const bar = it.querySelector(SEL.progressBar);
+      // 平台分集进度：进度条 aria-valuenow 与右侧显示的百分比文字，取两者较大值。
+      // 二者可能其中一个暂未刷新（例如滚动/懒加载时 aria 仍为 0），取 max 保证“取得到”平台真实分集进度。
+      let barVal = null, rateVal = null;
+      if (bar) { const v = parseFloat(bar.getAttribute('aria-valuenow')); if (!isNaN(v)) barVal = v; }
+      { const rs = it.querySelector(SEL.rateSpan); if (rs) rateVal = parsePct(rs.textContent); }
       let aria = null;
-      if (bar) { const v = parseFloat(bar.getAttribute('aria-valuenow')); if (!isNaN(v)) aria = v; }
-      if (aria == null) { const rs = it.querySelector(SEL.rateSpan); if (rs) aria = parsePct(rs.textContent); }
+      if (barVal != null && rateVal != null) aria = Math.max(barVal, rateVal);
+      else if (barVal != null) aria = barVal;
+      else if (rateVal != null) aria = rateVal;
       const active = it.getAttribute('data-checked') === 'true';
       const infoEl = it.querySelector('[class*="item-info_"]');
       const durSec = infoEl ? parseDurSec(infoEl.textContent) : null;
@@ -687,6 +694,8 @@
     // 单视频、无分集列表：当作一集处理
     if (eps.length === 0) {
       setPhase(S.phase, 'PLAYING');
+      // 单视频：用课程平台进度对齐续播起点，避免浏览器历史把进度续到远超平台真实进度的位置
+      await alignToPlatformProgress({ aria: (S.current && S.current.progress != null ? S.current.progress : null) });
       await ensurePlaying();
       const r = await waitForEnded();
       await sleep(CFG.syncWaitMs);
@@ -732,19 +741,17 @@
         setPhase(S.phase, 'WAITING_CONFIRMATION');
         await sleep(CFG.syncWaitMs);
         if (S.phase === PHASE.STOPPED || S.phase === PHASE.ERROR) break;
-        // 复核：以“该集平台展示进度到达 100%”为准再进入下一节。
-        // 若刚 ended/near-end 但平台同步稍慢，先轮询；仍不到 100 时，若视频确实整集播完则信任并记完成
-        // （稍后目录页会用 aria 复核），否则不记完成→本轮重新播放本集，避免把没看完的集误跳过。
-        const reached100 = await waitEpisodePercent(firstUnfinished.index, 100, Math.max(6000, CFG.syncWaitMs));
-        const playedThrough = (r === 'ended' || r === 'near-end');
-        if (reached100 || playedThrough) {
+        // 跳集判定一律以“该集平台展示进度（右侧分集百分比 / 进度条 aria）到达 100%”为准。
+        // 绝不因视频走到 end / near-end 就跳到下一集：手动拖拽到结尾、浏览器历史续播都会让视频
+        // 看起来“已播完”，但平台分集进度并未真正到 100%。只有平台确认 100% 才记完成并进入下一集；
+        // 否则不记完成，循环回到本集按平台进度继续真实观看（不跳、不伪造、不快进）。
+        const reached100 = await waitEpisodePercent(firstUnfinished.index, 100, Math.max(6000, CFG.platformSyncTimeout || 60000));
+        if (reached100) {
           markEpisodeDoneLocal(firstUnfinished.index);
-          if (!reached100 && playedThrough) {
-            S.lastError = '该集已播完，平台进度同步稍慢，稍后目录页会复核为100%';
-            updatePanel();
-          }
         } else {
-          S.lastError = '该集未确认完成，将重新播放本集';
+          const curEp = readEpisodes().find((e) => e.index === firstUnfinished.index);
+          const curPct = curEp && curEp.aria != null ? Math.round(curEp.aria) : '?';
+          S.lastError = '本集平台分集进度仅 ' + curPct + '%，未到 100%，继续播放本集（不跳到下一节）';
           updatePanel();
         }
       } catch (e) {
@@ -1023,6 +1030,7 @@
           <div class="row"><span class="k">当前分集</span><span class="v" id="episode">-</span></div>
           <div class="row"><span class="k">视频进度</span><span class="v" id="vprog">-</span></div>
           <div class="bar"><i id="vbar"></i></div>
+          <div class="row"><span class="k">平台分集进度</span><span class="v" id="eprog">-</span></div>
           <div class="row"><span class="k">平台课程进度</span><span class="v" id="cprog">-</span></div>
           <div class="row"><span class="k">已完成课程</span><span class="v" id="donecount">-</span></div>
           <div class="row"><span class="k">播放速度</span><span class="v" id="rate">1.0x</span></div>
@@ -1049,6 +1057,7 @@
       episode: panelRoot.getElementById('episode'),
       vprog: panelRoot.getElementById('vprog'),
       vbar: panelRoot.getElementById('vbar'),
+      eprog: panelRoot.getElementById('eprog'),
       cprog: panelRoot.getElementById('cprog'),
       donecount: panelRoot.getElementById('donecount'),
       rate: panelRoot.getElementById('rate'),
@@ -1103,6 +1112,17 @@
       panelEls.vprog.textContent = fmtTime(t.cur) + ' / ' + fmtTime(t.dur) + ' (' + pct.toFixed(0) + '%)';
       panelEls.vbar.style.width = pct + '%';
     } else { panelEls.vprog.textContent = '-'; panelEls.vbar.style.width = '0'; }
+    // 平台分集进度：当前正在播放/最近一集的平台展示进度（右侧分集百分比，用于判断是否该跳集）
+    let epPctTxt = '-';
+    try {
+      const epsNow = readEpisodes();
+      if (epsNow.length) {
+        const idx = S.currentEpisode ? S.currentEpisode.index : null;
+        const curEp = (idx != null && epsNow.find((e) => e.index === idx)) || epsNow.find((e) => e.active) || null;
+        if (curEp && curEp.aria != null) epPctTxt = Math.round(curEp.aria) + '%';
+      }
+    } catch (e) {}
+    panelEls.eprog.textContent = epPctTxt;
     panelEls.cprog.textContent = (c.progress != null ? c.progress + '%' : '-') + (c.key && S.manualKeys[c.key] ? ' (人工)' : '');
     panelEls.donecount.textContent = (S.completedCount || 0) + ' / ' + (S.totalCourses || '?');
     panelEls.rate.textContent = (t.rate || 1).toFixed(1) + 'x';

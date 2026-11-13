@@ -26,7 +26,7 @@ async function poll(page, expr, pred, timeout = 120000, label = '') {
 async function boot(page) {
   await poll(page, '!!(window.__ENAEA_AUTO__ && window.__ENAEA_AUTO__.S)', (v) => v, 10000, 'inject');
   await page.waitForTimeout(600);
-  await ev(page, 'window.__ENAEA_AUTO__.CFG.syncWaitMs=200; window.__ENAEA_AUTO__.CFG.playerReadyTimeout=8000; window.__ENAEA_AUTO__.CFG.scanStableMs=150; window.__ENAEA_AUTO__.CFG.stallMs=8000;');
+  await ev(page, 'window.__ENAEA_AUTO__.CFG.syncWaitMs=200; window.__ENAEA_AUTO__.CFG.playerReadyTimeout=8000; window.__ENAEA_AUTO__.CFG.scanStableMs=150; window.__ENAEA_AUTO__.CFG.stallMs=8000; window.__ENAEA_AUTO__.CFG.platformSyncTimeout=1200;');
 }
 async function ready(page) {
   // ensure catalog DOM rendered AND userscript injected; retry goto+inject if lost
@@ -218,6 +218,24 @@ async function main() {
     const b = await ev(page, '({hosts:document.querySelectorAll("#__enaea_panel_host__").length, booted:!!window.__ENAEA_AUTO_BOOTED__})');
     rec('S8-single-instance-crossworld', b.hosts === 0 && b.booted === true, b);
   } catch (e) { rec('S8b-EXCEPTION', false, String(e)); }
+
+  // ---------- Scenario 9: 视频到结尾但平台分集进度未到100% → 不跳下一节，继续播本集 ----------
+  try {
+    await freshStart(page);
+    // 课程A 第一集平台进度设为 17%（未满），模拟“手动拖到结尾/续播到结尾但平台分集进度没记满”
+    await ev(page, `(()=>{const d=window.FIXTURE.data;const co=d.chapters[0].sections[0].courses[0];co.episodes[0].progress=17;co.episodes[1].progress=0;window.FIXTURE.save();window.FIXTURE.renderCatalog();})()`);
+    await ev(page, 'window.FIXTURE.activationLog=[]; window.FIXTURE.creditOnEnded=false;');
+    await ev(page, 'window.__ENAEA_AUTO__.Controls.start()');
+    await poll(page, '(()=>{const v=document.querySelector("video");return !!(v&&v.currentSrc);})()', (v) => v, 30000, 's9-playing');
+    await page.waitForTimeout(10000); // 允许至少一次“视频到结尾但平台未满”的循环
+    const mid = await ev(page, `(()=>{const d=window.FIXTURE.data;const co=d.chapters[0].sections[0].courses[0];return {phase:window.__ENAEA_AUTO__.S.phase, ep0:co.episodes[0].progress, ep1:co.episodes[1].progress, log:(window.FIXTURE.activationLog||[]).slice(0,10), err:window.__ENAEA_AUTO__.S.lastError};})()`);
+    rec('S9-not-jump-before-platform-100', mid.ep0 < 100 && mid.ep1 === 0 && !mid.log.includes(1) && mid.phase !== 'COMPLETED', mid);
+    // 现在允许平台正常记账：本集继续真实播放到 100% 后应自动进入下一集并最终完成
+    await ev(page, 'window.FIXTURE.creditOnEnded=true;');
+    const fin = await poll(page, 'window.__ENAEA_AUTO__.S.phase', (v) => v === 'COMPLETED' || v === 'ERROR', 120000, 's9-complete');
+    const st = await ev(page, `(()=>{const d=window.FIXTURE.data;const co=d.chapters[0].sections[0].courses[0];return {phase:window.__ENAEA_AUTO__.S.phase, eps:co.episodes.map(e=>e.progress)};})()`);
+    rec('S9-completes-after-credit', fin === 'COMPLETED' && st.eps.every((p) => p >= 100), { fin, eps: st.eps });
+  } catch (e) { rec('S9-EXCEPTION', false, String(e)); }
 
   await task.finish({ keep: [] }).catch(() => {});
   const passed = results.filter((r) => r.ok).length;
